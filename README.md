@@ -15,7 +15,55 @@
 - Prints a readable plain-text view when stdout is not a TTY
 - Sanitizes untrusted content before rendering so terminal control sequences do not leak through
 
-## Quick Start
+## Installation
+
+### Recommended Path
+
+- macOS: use Homebrew when available.
+- Linux: use the prebuilt release binary, or build from source if you prefer.
+- Developers or contributors: install from source with `npm install`.
+
+### Homebrew
+
+If you use the Homebrew tap, install it with:
+
+```bash
+brew install cbuchler/tap/mdview
+```
+
+This is the intended macOS install path once the tap is published.
+
+### Prebuilt Binary
+
+Download the release artifact for your platform from GitHub Releases, then place the `mdview` binary somewhere on your `PATH`.
+
+### From Source
+
+If you want to build or run from the repository:
+
+```bash
+npm install
+npm run build
+npm run dev -- README.md
+```
+
+### Standalone Binary Build
+
+This repository can produce a standalone binary with Bun:
+
+```bash
+npm run package:binaries
+```
+
+To copy that binary into `~/.local/bin` by default:
+
+```bash
+npm run install:binary
+```
+
+Set `MDVIEW_INSTALL_DIR` if you want it installed somewhere else.
+
+## Usage
 
 ```bash
 mdview README.md
@@ -173,6 +221,39 @@ Initialize a specific path only if it does not already exist:
 mdview --init-config --config /tmp/mdview.yml
 ```
 
+## Shell Completions
+
+Completion scripts are included in the repository and published package.
+
+### Bash
+
+```bash
+source /path/to/mdview/completions/bash/mdview
+```
+
+For a permanent install, copy the file into your shell completion directory or source it from your shell profile.
+
+### Zsh
+
+```bash
+fpath+=(/path/to/mdview/completions/zsh)
+autoload -Uz compinit
+compinit
+```
+
+For a permanent install, place `_mdview` in a directory that is already on `fpath`.
+
+### Fish
+
+```bash
+mkdir -p ~/.config/fish/completions
+cp /path/to/mdview/completions/fish/mdview.fish ~/.config/fish/completions/
+```
+
+Fish picks up the completion automatically after the file is installed.
+
+The `completions/` directory is included in the published package.
+
 ## Runtime Behavior
 
 - Local files reload automatically with debounce.
@@ -181,14 +262,6 @@ mdview --init-config --config /tmp/mdview.yml
 - `--no-wrap` keeps lines unwrapped.
 - Non-TTY output uses the same renderer but prints plain text instead of opening the TUI.
 - Invalid flags, invalid values, unknown themes, malformed YAML, and unknown YAML keys are reported as concise CLI errors.
-
-## Release Binaries
-
-The repository includes a packaging script that uses Bun to produce a standalone binary:
-
-```bash
-npm run package:binaries
-```
 
 ## Development
 
@@ -199,9 +272,12 @@ npm test
 npm run build
 ```
 
+## License
+
+GNU GPLv3 or later. See [`LICENSE`](/var/home/charles/Code/mdview/LICENSE).
+
 ## Notes
 
 - Markdown rendering is tuned for terminal display, so some complex browser-only Markdown features are intentionally out of scope.
 - Terminal width, Unicode width, and emoji handling can still vary a bit by terminal emulator and font.
 - If you see odd wrapping in a specific terminal, try `--no-wrap` to narrow down whether it is a width-calculation issue.
-- License: GNU GPLv3 or later. See [`LICENSE`](/var/home/charles/Code/mdview/LICENSE).

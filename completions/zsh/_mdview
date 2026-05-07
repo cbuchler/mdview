@@ -1,0 +1,25 @@
+#compdef mdview
+
+_mdview() {
+  _arguments -C \
+    '(-h --help)'{-h,--help}'[show help and exit]' \
+    '--version[print version and exit]' \
+    '--print-config[print a commented YAML template]' \
+    '--init-config[write a config template if missing]' \
+    '--theme=[select viewer theme]:theme:(github dracula solarized tempus-rift midnight paper)' \
+    '--syntax-theme=[select code theme]:theme:(github dracula solarized tempus-rift midnight paper)' \
+    '--refresh=[set refresh interval]:duration' \
+    '--refresh-interval=[set refresh interval]:duration' \
+    '--timeout=[set network timeout]:duration' \
+    '--max-bytes=[set maximum input size]:bytes' \
+    '--padding=[set horizontal padding]:number' \
+    '--wrap[enable wrapping]' \
+    '--no-wrap[disable wrapping]' \
+    '--watch[enable file watching]' \
+    '--no-watch[disable file watching]' \
+    '--config=[config file path]:file:_files' \
+    '1:input file or URL:_files' \
+    '*::arg:->args'
+}
+
+_mdview "$@"

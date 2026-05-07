@@ -10,14 +10,16 @@
     "mdview": "dist/main.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "completions"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx src/main.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "package:binaries": "bun build src/main.ts --compile --outfile release/mdview"
+    "package:binaries": "bun build src/main.ts --compile --outfile release/mdview",
+    "install:binary": "node scripts/install-binary.mjs"
   },
   "dependencies": {
     "chokidar": "^4.0.3",

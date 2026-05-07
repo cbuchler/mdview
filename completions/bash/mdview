@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+_mdview_complete() {
+  local cur prev
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+  case "$prev" in
+    --theme|--syntax-theme)
+      COMPREPLY=( $(compgen -W "github dracula solarized tempus-rift midnight paper" -- "$cur") )
+      return 0
+      ;;
+    --config)
+      COMPREPLY=( $(compgen -f -- "$cur") )
+      return 0
+      ;;
+  esac
+
+  case "$cur" in
+    -*)
+      COMPREPLY=( $(compgen -W "--theme --syntax-theme --refresh --refresh-interval --timeout --max-bytes --padding --wrap --no-wrap --watch --no-watch --config --print-config --init-config --help --version -h" -- "$cur") )
+      ;;
+    *)
+      COMPREPLY=( $(compgen -f -- "$cur") )
+      ;;
+  esac
+}
+
+complete -F _mdview_complete mdview
