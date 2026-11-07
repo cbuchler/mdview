@@ -1,272 +1,179 @@
 # mdview
 
-`mdview` is a terminal markdown viewer with live reload, YAML config support, theme presets, and a plain-text fallback for non-TTY output.
+Read Markdown in your terminal. `mdview` reloads local files when you save them and adjusts the layout when you resize the window.
 
-## What It Does
+It supports GitHub-Flavored Markdown, including tables, task lists, and code blocks. You can read a file, fetch a URL, or pipe in text. Redirect output to get plain text.
 
-- Renders GitHub-Flavored Markdown in an Ink-based TUI
-- Auto-detects input from:
-  - a local file path
-  - piped stdin
-  - a URL beginning with `http://` or `https://`
-  - `-` as stdin shorthand
-- Reloads local files automatically
-- Supports YAML config files at `~/.config/mdview/config.yml` or `~/.config/mdview/config.yaml`
-- Prints a readable plain-text view when stdout is not a TTY
-- Sanitizes untrusted content before rendering so terminal control sequences do not leak through
+## Install
 
-## Installation
+### Linux binary
 
-### Recommended Path
-
-- macOS: use Homebrew when available.
-- Linux: use the prebuilt release binary, or build from source if you prefer.
-- Developers or contributors: install from source with `npm install`.
-
-### Homebrew
-
-If you use the Homebrew tap, install it with:
+Download `mdview-linux-x64.tar.gz` from [GitHub Releases](https://github.com/cbuchler/mdview/releases/latest). Extract it, then install the binary:
 
 ```bash
-brew install cbuchler/tap/mdview
+tar -xzf mdview-linux-x64.tar.gz
+mkdir -p ~/.local/bin
+install -m 755 mdview ~/.local/bin/mdview
 ```
 
-This is the intended macOS install path once the tap is published.
+Make sure `~/.local/bin` is on your `PATH`. The binary runs on Linux x86-64. For other platforms, build from source.
 
-### Prebuilt Binary
+### From source
 
-Download the release artifact for your platform from GitHub Releases, then place the `mdview` binary somewhere on your `PATH`.
-
-### From Source
-
-If you want to build or run from the repository:
+With Node.js and npm installed:
 
 ```bash
-npm install
+git clone https://github.com/cbuchler/mdview.git
+cd mdview
+npm ci
 npm run build
-npm run dev -- README.md
+node dist/main.js README.md
 ```
 
-### Standalone Binary Build
-
-This repository can produce a standalone binary with Bun:
+To build a standalone binary, install Bun and run:
 
 ```bash
 npm run package:binaries
-```
-
-To copy that binary into `~/.local/bin` by default:
-
-```bash
 npm run install:binary
 ```
 
-Set `MDVIEW_INSTALL_DIR` if you want it installed somewhere else.
+This installs `release/mdview` as `~/.local/bin/mdview`. Set `MDVIEW_INSTALL_DIR` to choose another directory.
 
-## Usage
+## Use
 
 ```bash
 mdview README.md
-mdview README.md --theme dracula --refresh 150ms
+mdview README.md --theme dracula
 mdview https://example.com/readme.md
 cat README.md | mdview
-printf '# Hello from stdin\n' | mdview
-mdview -
+mdview - < README.md
 ```
 
-## CLI Reference
+Pass a file path or an HTTP(S) URL. Use `-`, or omit the argument, to read stdin. An explicit file or URL takes precedence over piped input. With no argument or piped input, `mdview` prints help.
 
-Use `mdview --help` for a compact summary. The current flags are:
+### Keys
 
-- `--theme <name>`
-- `--syntax-theme <name>`
-- `--refresh <ms|1s|1m>`
-- `--timeout <ms|1s|1m>`
-- `--max-bytes <bytes|1mb|2mb>`
-- `--padding <number>`
-- `--wrap` / `--no-wrap`
-- `--watch` / `--no-watch`
-- `--config <path>`
-- `--print-config`
-- `--init-config`
-- `-h`, `--help`
-- `--version`
+| Key | Action |
+| --- | --- |
+| `q` or `Ctrl+C` | Quit |
+| `j` / `k` or down / up arrow | Scroll one line |
+| `Space` or `Page Down` | Scroll down one page |
+| `b` or `Page Up` | Scroll up one page |
+| `g` / `G` | Go to the top / bottom |
 
-Examples:
+### Reloading and resizing
 
-```bash
-mdview README.md --theme tempus-rift
-mdview README.md --syntax-theme dracula
-mdview README.md --no-wrap
-mdview README.md --watch
-mdview README.md --no-watch
-mdview README.md --max-bytes 1mb
-```
+Local files reload on save. Use `--no-watch` to turn this off. `--refresh 150ms` sets the delay used to group file changes; it does not poll URLs. URLs and stdin are read once. Redirected output is also written once.
 
-## Input Detection
+Resizing the terminal rewraps the text, code blocks, and table cells. If a table cannot fit, each row becomes a list of header/value pairs.
 
-`mdview` chooses the source automatically:
+Long lines wrap by default. `--no-wrap` leaves prose unwrapped and clips it to the terminal width. Code blocks and tables still wrap.
 
-- If stdin is piped, it reads stdin.
-- If the argument starts with `http://` or `https://`, it fetches that URL.
-- Otherwise, it treats the argument as a file path.
-- If you pass `-`, it is treated as stdin.
+URLs have a timeout and an input size limit. `mdview` removes terminal control sequences from input and skips embedded HTML. Character widths can vary with your terminal and font.
 
-If you launch `mdview` with no input and no piped data, it prints help and exits.
+## Options
 
-## Themes
+Run `mdview --help` for help.
 
-Built-in themes:
+| Option | Purpose |
+| --- | --- |
+| `--theme <name>` | Set the text and status bar theme |
+| `--syntax-theme <name>` | Set the code theme |
+| `--refresh <duration>` | Set the file reload delay, such as `150ms` |
+| `--timeout <duration>` | Set the URL timeout, such as `8s` |
+| `--max-bytes <size>` | Limit input size, such as `1mb` |
+| `--padding <number>` | Set left and right padding |
+| `--wrap` / `--no-wrap` | Turn prose wrapping on or off |
+| `--watch` / `--no-watch` | Turn file reloads on or off |
+| `--config <path>` | Use a config file |
+| `--print-config` | Print the config template |
+| `--init-config` | Create a config file without overwriting one |
+| `-h`, `--help` | Show help |
+| `--version` | Show the version |
 
-- `github`
-- `dracula`
-- `solarized`
-- `tempus-rift`
-- `midnight`
-- `paper`
+Durations accept milliseconds, seconds, or minutes: `150`, `150ms`, `8s`, `1m`. Sizes accept bytes, KB, MB, or GB: `1024`, `1kb`, `2mb`, `1gb`.
 
-`tempus rift` and `tempusrift` are accepted as aliases for `tempus-rift`.
+## Configure
 
-## Configuration
+`mdview` reads `~/.config/mdview/config.yml`, or `config.yaml` if there is no `.yml` file. Command-line options override the config file; the config file overrides defaults.
 
-### Default Location
-
-The default config file is:
-
-```text
-~/.config/mdview/config.yml
-```
-
-`mdview` also accepts `~/.config/mdview/config.yaml`.
-
-### Precedence
-
-Configuration is applied in this order:
-
-1. CLI flags
-2. YAML config file
-3. built-in defaults
-
-The built-in defaults are tuned for terminal use: `theme: tempus-rift` and `syntaxTheme: dracula`.
-
-### Supported Keys
-
-The config file supports these keys:
-
-- `theme`
-- `syntaxTheme`
-- `wrap`
-- `padding`
-- `refreshIntervalMs`
-- `timeoutMs`
-- `maxInputBytes`
-- `watch`
-
-### Example Config
+These are the supported keys and their defaults:
 
 ```yaml
-# mdview configuration
-# Default config path: ~/.config/mdview/config.yml
-
-# Visual theme for the viewer and status bars.
+# Text and status bar theme.
 theme: tempus-rift
 
-# Theme used for code blocks and other syntax-adjacent surfaces.
+# Code theme.
 syntaxTheme: dracula
 
-# Whether lines wrap in the viewport.
+# Wrap prose.
 wrap: true
 
-# Horizontal padding around rendered content.
+# Left and right padding, in terminal columns.
 padding: 1
 
-# File watch debounce in milliseconds.
+# Delay used to group file changes, in milliseconds.
 refreshIntervalMs: 150
 
-# Network timeout in milliseconds for URL input.
+# URL timeout, in milliseconds.
 timeoutMs: 8000
 
-# Maximum bytes to load before truncating.
+# Input size limit, in bytes.
 maxInputBytes: 2097152
 
-# Enable live reload for local files.
+# Reload local files on save.
 watch: true
-
-# Supported themes: github, dracula, solarized, tempus-rift, midnight, paper
 ```
 
-### Generate Config From the Binary
+Choose from `github`, `dracula`, `solarized`, `tempus-rift`, `midnight`, and `paper`. `tempus rift` and `tempusrift` also mean `tempus-rift`.
 
-Print a commented template:
-
-```bash
-mdview --print-config
-```
-
-Write the template to the default config path only if it does not already exist:
+Create the default config file:
 
 ```bash
 mdview --init-config
 ```
 
-Write a config template to a specific path:
+Or choose a path:
 
 ```bash
-mdview --print-config > /tmp/mdview.yml
+mdview --init-config --config ./mdview.yml
 ```
 
-Initialize a specific path only if it does not already exist:
+Use `mdview --print-config` to print a commented template. Invalid options, values, themes, YAML, and unknown config keys produce an error.
 
-```bash
-mdview --init-config --config /tmp/mdview.yml
-```
+## Shell completion
 
-## Shell Completions
-
-Completion scripts are included in the repository and published package.
+Completion scripts are in `completions/`. Replace `/path/to/mdview` below with the directory where you cloned or extracted mdview.
 
 ### Bash
+
+Add this to your shell profile:
 
 ```bash
 source /path/to/mdview/completions/bash/mdview
 ```
 
-For a permanent install, copy the file into your shell completion directory or source it from your shell profile.
-
 ### Zsh
 
-```bash
+Add this to `.zshrc`, before any existing `compinit` call:
+
+```zsh
 fpath+=(/path/to/mdview/completions/zsh)
 autoload -Uz compinit
 compinit
 ```
 
-For a permanent install, place `_mdview` in a directory that is already on `fpath`.
-
 ### Fish
 
-```bash
+```fish
 mkdir -p ~/.config/fish/completions
 cp /path/to/mdview/completions/fish/mdview.fish ~/.config/fish/completions/
 ```
 
-Fish picks up the completion automatically after the file is installed.
-
-The `completions/` directory is included in the published package.
-
-## Runtime Behavior
-
-- Local files reload automatically with debounce.
-- URLs are fetched with a timeout and a size guardrail.
-- Long lines wrap by default.
-- `--no-wrap` keeps lines unwrapped.
-- Non-TTY output uses the same renderer but prints plain text instead of opening the TUI.
-- Invalid flags, invalid values, unknown themes, malformed YAML, and unknown YAML keys are reported as concise CLI errors.
-
-## Development
+## Develop
 
 ```bash
-npm install
+npm ci
 npm run dev -- README.md
 npm test
 npm run build
@@ -274,10 +181,4 @@ npm run build
 
 ## License
 
-GNU GPLv3 or later. See [`LICENSE`](/var/home/charles/Code/mdview/LICENSE).
-
-## Notes
-
-- Markdown rendering is tuned for terminal display, so some complex browser-only Markdown features are intentionally out of scope.
-- Terminal width, Unicode width, and emoji handling can still vary a bit by terminal emulator and font.
-- If you see odd wrapping in a specific terminal, try `--no-wrap` to narrow down whether it is a width-calculation issue.
+[GNU GPLv3 or later](LICENSE).
