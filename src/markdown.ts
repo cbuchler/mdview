@@ -24,7 +24,7 @@ export function renderMarkdownDocument(
   const tree = inlineParser.parse(markdown) as MdNode;
   const title = inferTitle(tree, options.sourceName);
   const body = renderBlocks(tree.children ?? [], {
-    width: Math.max(20, options.width - options.padding * 2),
+    width: Math.max(1, options.width - options.padding * 2),
     theme: options.theme,
     wrap: options.wrap,
     padding: options.padding,
@@ -81,7 +81,7 @@ function renderBlocks(
       case 'blockquote': {
         const nested = renderBlocks(node.children ?? [], {
           ...context,
-          width: Math.max(10, context.width - 2),
+          width: Math.max(1, context.width - 2),
         });
         for (const line of nested) {
           lines.push(prefixLine(line, [segment('│ ', { color: context.theme.quote, dimColor: true })]));
@@ -98,7 +98,7 @@ function renderBlocks(
           const continuation = repeatSpace(widthOf(bullet));
           const itemLines = renderBlocks(item.children ?? [], {
             ...context,
-            width: Math.max(10, context.width - widthOf(bullet)),
+            width: Math.max(1, context.width - widthOf(bullet)),
             listDepth: context.listDepth + 1,
           });
           if (itemLines.length === 0) {
@@ -120,8 +120,13 @@ function renderBlocks(
           color: context.syntaxTheme.codeForeground,
           backgroundColor: context.syntaxTheme.codeBackground,
         };
-        const headerLabel = lang ? ` ${lang} ` : ' code ';
-        lines.push([segment(`┌${headerLabel.padEnd(Math.max(4, context.width - 1), '─')}`, { color: fenceColor, bold: true })]);
+        const headerWidth = Math.max(0, context.width - 1);
+        let headerLabel = '';
+        for (const part of graphemes(lang ? ` ${lang} ` : ' code ')) {
+          if (widthOf(headerLabel + part) > headerWidth) break;
+          headerLabel += part;
+        }
+        lines.push([segment(`┌${headerLabel}${'─'.repeat(headerWidth - widthOf(headerLabel))}`, { color: fenceColor, bold: true })]);
         const rawLines = String(node.value ?? '').split('\n');
         for (const rawLine of rawLines) {
           const highlighted = highlightCodeLine(stripControlChars(rawLine), lang, context.syntaxTheme, baseCodeStyle);
@@ -133,7 +138,7 @@ function renderBlocks(
             ]);
           }
         }
-        lines.push([segment(`└${'─'.repeat(Math.max(4, context.width - 1))}`, { color: fenceColor, bold: true })]);
+        lines.push([segment(`└${'─'.repeat(headerWidth)}`, { color: fenceColor, bold: true })]);
         lines.push([]);
         break;
       }
@@ -175,16 +180,40 @@ function renderTable(node: MdNode, context: { width: number; theme: Theme; wrap:
   }
 
   const columnCount = Math.max(...rows.map((row) => row.length));
-  const gutter = columnCount + 1;
-  const available = Math.max(20, context.width - gutter);
+  // Each column needs two padding cells and a border, plus the left border.
+  const available = context.width - (3 * columnCount + 1);
+  if (available < columnCount * 3) {
+    // Keep all cells readable when even a compact grid cannot fit.
+    const stacked: RenderLine[] = [];
+    const records = rows.length > 1 ? rows.slice(1) : rows;
+    records.forEach((row, rowIndex) => {
+      if (rowIndex > 0) stacked.push([]);
+      for (let column = 0; column < columnCount; column += 1) {
+        const label = rows.length > 1 ? `${rows[0][column] || `Column ${column + 1}`}: ` : '';
+        stacked.push(...wrapSegments([
+          segment(label, { color: context.theme.heading, bold: true }),
+          segment(row[column] ?? ''),
+        ], context.width, true));
+      }
+    });
+    return stacked;
+  }
   const naturalWidths = new Array(columnCount).fill(0).map((_, column) =>
     Math.max(3, ...rows.map((row) => widthOf(row[column] ?? ''))),
   );
 
-  const totalNatural = naturalWidths.reduce((sum, value) => sum + value, 0);
-  const widths = totalNatural <= available
-    ? naturalWidths
-    : naturalWidths.map((value) => Math.max(3, Math.floor((value / totalNatural) * available)));
+  const widths = new Array<number>(columnCount).fill(3);
+  let remaining = available - columnCount * 3;
+  // Distribute the budget without letting minimum column widths cause overflow.
+  while (remaining > 0) {
+    const expandable = widths.map((width, column) => column).filter((column) => widths[column] < naturalWidths[column]);
+    if (expandable.length === 0) break;
+    for (const column of expandable) {
+      if (remaining === 0) break;
+      widths[column] += 1;
+      remaining -= 1;
+    }
+  }
 
   const header: RenderLine[] = [];
   const separator = `├${widths.map((value) => '─'.repeat(value + 2)).join('┼')}┤`;

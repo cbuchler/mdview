@@ -19,14 +19,25 @@ type LoadState =
 
 export function App({ source, config }: AppProps): React.JSX.Element {
   const { exit } = useApp();
-  const stdout = useStdout();
+  const { stdout } = useStdout();
   const theme = resolveTheme(config.theme);
   const syntaxTheme = resolveTheme(config.syntaxTheme);
-  const columns = Math.max(20, stdout.stdout.columns || 80);
-  const rows = Math.max(10, stdout.stdout.rows || 24);
-  const contentHeight = Math.max(1, rows - 2);
+  const [{ columns, rows }, setDimensions] = useState(() => ({
+    columns: stdout.columns || 80,
+    rows: stdout.rows || 24,
+  }));
+  useEffect(() => {
+    const resize = () => setDimensions({ columns: stdout.columns || 80, rows: stdout.rows || 24 });
+    stdout.on('resize', resize);
+    resize();
+    return () => { stdout.off('resize', resize); };
+  }, [stdout]);
+  const padding = Math.min(config.padding, Math.max(0, Math.floor((columns - 4) / 2)));
   const [scrollOffset, setScrollOffset] = useState(0);
   const [state, setState] = useState<LoadState>({ phase: 'loading', message: `Loading ${source.displayName}...` });
+  const loadingMessage = state.phase === 'loading' ? state.message : undefined;
+  const note = state.phase === 'error' ? state.error : loadingMessage ?? state.result?.warning;
+  const contentHeight = Math.max(1, rows - 2 - (note ? 1 : 0));
   const activeRequest = useRef(0);
   const lastGood = useRef<LoadResult | undefined>(undefined);
   const fileWatcher = useRef<(() => void) | undefined>(undefined);
@@ -116,11 +127,11 @@ export function App({ source, config }: AppProps): React.JSX.Element {
       width: columns,
       theme,
       wrap: config.wrap,
-      padding: config.padding,
+      padding,
       syntaxTheme,
       sourceName: state.result.displayName,
     });
-  }, [columns, config.padding, config.wrap, source.displayName, state.result, syntaxTheme, theme]);
+  }, [columns, padding, config.wrap, source.displayName, state.result, syntaxTheme, theme]);
 
   const availableLines = document?.lines ?? [];
   const maxScroll = Math.max(0, availableLines.length - contentHeight);
@@ -169,30 +180,28 @@ export function App({ source, config }: AppProps): React.JSX.Element {
   const sourceStatus = source.canWatch && config.watch ? 'watching' : 'static';
   const progress = state.phase === 'error' && !state.result ? 'error' : state.phase === 'loading' ? 'loading' : `${percent}%`;
   const parseStatus = document ? `parsed in ${document.parseMs.toFixed(0)}ms` : 'parsing...';
-  const loadingMessage = state.phase === 'loading' ? state.message : undefined;
-  const note = state.phase === 'error' ? state.error : loadingMessage ?? state.result?.warning;
   const title = document?.title ?? source.displayName;
 
   return (
     <Box flexDirection="column" width={columns} height={rows}>
-      <Box paddingX={config.padding} justifyContent="space-between">
-        <Text color={theme.heading} bold>
+      <Box paddingX={padding} columnGap={1} justifyContent="space-between" height={1} flexShrink={0} overflow="hidden">
+        <Text color={theme.heading} bold wrap="truncate-end">
           {sanitizeDisplayText(title)}
         </Text>
-        <Text color={theme.muted}>
+        <Text color={theme.muted} wrap="truncate-end">
           {sanitizeDisplayText(`${source.displayName} · ${progress} · ${sourceStatus} · ${parseStatus}`)}
         </Text>
       </Box>
-      <Box flexDirection="column" flexGrow={1} paddingX={config.padding}>
+      <Box flexDirection="column" height={Math.max(1, rows - 2)} flexShrink={0} paddingX={padding} overflow="hidden">
         {note ? (
-          <Box marginBottom={1}>
-            <Text color={state.phase === 'error' ? theme.error : theme.warning} bold>
+          <Box height={1} flexShrink={0}>
+            <Text color={state.phase === 'error' ? theme.error : theme.warning} bold wrap="truncate-end">
               {sanitizeDisplayText(note)}
             </Text>
           </Box>
         ) : null}
         {slice.map((line, index) => (
-          <Text key={index}>
+          <Text key={index} wrap="truncate-end">
             {line.length === 0
               ? ' '
               : line.map((segment, segmentIndex) => (
@@ -203,8 +212,8 @@ export function App({ source, config }: AppProps): React.JSX.Element {
           </Text>
         ))}
       </Box>
-      <Box paddingX={config.padding}>
-        <Text color={theme.muted}>
+      <Box paddingX={padding} height={1} flexShrink={0} overflow="hidden">
+        <Text color={theme.muted} wrap="truncate-end">
           q quit · j/k scroll · arrows · g top · G bottom · space page down · b page up
         </Text>
       </Box>
