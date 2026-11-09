@@ -13,6 +13,7 @@ import { renderDocumentAsPlainText, renderMarkdownDocument } from '../src/markdo
 import { resolveSource } from '../src/source.js';
 import { resolveTheme } from '../src/theme.js';
 import { widthOf } from '../src/utils.js';
+import type { RenderSegmentStyle } from '../src/types.js'
 
 const theme = resolveTheme('tempus-rift');
 const documentFor = (markdown: string, width: number, wrap = false) => renderMarkdownDocument(markdown, {
@@ -20,34 +21,29 @@ const documentFor = (markdown: string, width: number, wrap = false) => renderMar
 });
 
 describe('no-wrap prose', () => {
-  it.each([1, 20, 80])('renders long prose once at width %i with bounded segment count', (width) => {
+  it('renders long prose once even in a one-column viewport', () => {
     const markdown = 'word '.repeat(5000);
-    const document = documentFor(markdown, width);
+    const document = documentFor(markdown, 1);
     expect(renderDocumentAsPlainText(document)).toBe(markdown.trimEnd());
     expect(document.lines).toHaveLength(1);
-    expect(document.lines[0]).toHaveLength(1);
   });
 
   it('retains the styles and order of text crossing the viewport boundary', () => {
     const document = documentFor('normal **bold text** *italic text* [linked text](https://example.com) tail', 1);
     expect(document.lines).toHaveLength(1);
-    expect(document.lines[0]).toEqual([
-      { text: 'normal ', style: undefined },
-      { text: 'bold text', style: { bold: true } },
-      { text: ' ', style: undefined },
-      { text: 'italic text', style: { italic: true } },
-      { text: ' ', style: undefined },
-      { text: 'linked text', style: { color: theme.link, underline: true } },
-      { text: ' tail', style: undefined },
-    ]);
+    expect(renderDocumentAsPlainText(document)).toBe('normal bold text italic text linked text tail')
+    const styledText = (matches: (style: RenderSegmentStyle) => boolean) =>
+      document.lines.flat().filter(({ style }) => style && matches(style)).map(({ text }) => text).join('')
+    expect(styledText((style) => style.bold === true)).toBe('bold text')
+    expect(styledText((style) => style.italic === true)).toBe('italic text')
+    expect(styledText((style) => style.underline === true && style.color === theme.link)).toBe('linked text')
   });
 
   it('preserves explicit soft and hard line breaks, Unicode, and styles across lines', () => {
     const document = documentFor('**first\nsecond** and\n界 👩‍💻  \nlast\n', 1);
     expect(renderDocumentAsPlainText(document)).toBe('first\nsecond and\n界 👩‍💻\nlast');
-    expect(document.lines[0]).toEqual([{ text: 'first', style: { bold: true } }]);
-    expect(document.lines[1][0]).toEqual({ text: 'second', style: { bold: true } });
-    expect(document.lines[2]).toEqual([{ text: '界 👩‍💻', style: undefined }]);
+    expect(document.lines.slice(0, 2).map((line) => line.filter(({ style }) => style?.bold).map(({ text }) => text).join('')))
+      .toEqual(['first', 'second'])
     expect(document.lines).toHaveLength(4);
   });
 

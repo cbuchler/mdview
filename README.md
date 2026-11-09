@@ -176,7 +176,7 @@ cp /path/to/mdview/completions/fish/mdview.fish ~/.config/fish/completions/
 
 ## Develop
 
-Use Node.js 22.12 or newer. The Linux terminal tests also require Python 3; they check Bun behavior when Bun is installed.
+Use Node.js 22.12 or newer. The Linux terminal tests also require Python 3; they check Bun behavior when Bun is installed. Shell completion tests use Bash and check Zsh and Fish when installed. Missing optional shells are reported as skipped tests.
 
 ```bash
 npm ci

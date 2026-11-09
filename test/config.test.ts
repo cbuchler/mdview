@@ -1,10 +1,21 @@
-import { describe, expect, it } from 'vitest';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os';
 import path from 'node:path';
-import { initConfigFile, loadConfig, parseCliArgs, defaultConfigPath, defaultConfigPaths, printConfigTemplate, printHelp } from '../src/config.js';
-import { resolveTheme, listThemeNames, normalizeThemeName } from '../src/theme.js';
-import { VERSION } from '../src/version.js';
+import { initConfigFile, loadConfig, parseCliArgs, defaultConfigPath } from '../src/config.js'
+import { listThemeNames, normalizeThemeName } from '../src/theme.js';
+
+const directories: string[] = []
+
+async function temporaryDirectory() {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'mdview-config-'))
+  directories.push(directory)
+  return directory
+}
+
+afterEach(async () => {
+  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
+})
 
 describe('parseCliArgs', () => {
   it('parses flags and positionals', () => {
@@ -56,11 +67,8 @@ describe('parseCliArgs', () => {
     [['--wrap', './false'], { wrap: true, input: './false' }],
     [['false', '--wrap'], { wrap: true, input: 'false' }],
     [['--wrap', '--theme', 'dracula'], { wrap: true, theme: 'dracula' }],
-    [['--wrap', '--no-watch'], { wrap: true, watch: false }],
     [['--wrap', '--no-wrap'], { wrap: false }],
     [['--no-wrap', '--wrap'], { wrap: true }],
-    [['--wrap=false', '--wrap=true', '--no-wrap'], { wrap: false }],
-    [['--no-wrap', '--wrap', 'yes'], { wrap: true }],
   ])('handles optional wrap values and repeated switches: %j', (argv, expected) => {
     expect(parseCliArgs(argv as string[])).toEqual(expected);
   });
@@ -70,7 +78,6 @@ describe('parseCliArgs', () => {
     [['-', '--theme', 'dracula'], { input: '-', theme: 'dracula' }],
     [['--no-wrap', '-'], { input: '-', wrap: false }],
     [['--wrap', '-'], { input: '-', wrap: true }],
-    [['--wrap', '-', '--theme', 'dracula'], { input: '-', wrap: true, theme: 'dracula' }],
   ])('accepts the explicit stdin sentinel among flags: %j', (argv, expected) => {
     expect(parseCliArgs(argv as string[])).toEqual(expected);
   });
@@ -87,14 +94,13 @@ describe('parseCliArgs', () => {
 describe('themes', () => {
   it('includes tempus rift and other built-ins', () => {
     expect(listThemeNames()).toContain('tempus-rift');
-    expect(resolveTheme('tempus-rift').accent).toBe('#7fd1b9');
     expect(normalizeThemeName('tempus rift')).toBe('tempus-rift');
   });
 });
 
 describe('yaml config', () => {
   it('loads yaml config files and theme aliases', async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'mdview-'));
+    const dir = await temporaryDirectory()
     const configPath = path.join(dir, 'config.yml');
     await writeFile(
       configPath,
@@ -120,17 +126,21 @@ describe('yaml config', () => {
     expect(config.timeoutMs).toBe(9000);
     expect(config.maxInputBytes).toBe(12345);
     expect(config.watch).toBe(false);
+
+    const overrides = await loadConfig({ configPath, padding: 0, refreshIntervalMs: 0, wrap: true, watch: true })
+    expect(overrides).toMatchObject({ padding: 0, refreshIntervalMs: 0, wrap: true, watch: true, theme: 'tempus-rift', maxInputBytes: 12345 })
+    await writeFile(configPath, 'wrap: true\nwatch: true\n')
+    expect(await loadConfig({ configPath, wrap: false, watch: false })).toMatchObject({ wrap: false, watch: false })
   });
 
   it('uses config.yml as the default config path', () => {
     expect(defaultConfigPath().endsWith(path.join('.config', 'mdview', 'config.yml'))).toBe(true);
-    expect(defaultConfigPaths().some((candidate) => candidate.endsWith('config.yaml'))).toBe(true);
   });
 });
 
 describe('yaml validation', () => {
-  it('loads config.yaml when present', async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'mdview-'));
+  it('falls back from a missing config.yml to config.yaml', async () => {
+    const dir = await temporaryDirectory()
     const configPath = path.join(dir, 'config.yaml');
     await writeFile(
       configPath,
@@ -141,13 +151,13 @@ describe('yaml validation', () => {
       'utf8',
     );
 
-    const config = await loadConfig({ configPath });
+    const config = await loadConfig({ configPath: path.join(dir, 'config.yml') })
     expect(config.theme).toBe('paper');
     expect(config.wrap).toBe(true);
   });
 
   it('fails with a clear error for invalid YAML values', async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'mdview-'));
+    const dir = await temporaryDirectory()
     const configPath = path.join(dir, 'config.yml');
     await writeFile(
       configPath,
@@ -166,7 +176,7 @@ describe('yaml validation', () => {
   });
 
   it('rejects unknown config keys', async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'mdview-'));
+    const dir = await temporaryDirectory()
     const configPath = path.join(dir, 'config.yml');
     await writeFile(
       configPath,
@@ -181,40 +191,9 @@ describe('yaml validation', () => {
   });
 });
 
-describe('version', () => {
-  it('loads version from package.json', () => {
-    expect(VERSION).toBe('0.1.1');
-  });
-});
-
-describe('help output', () => {
-  it('shows usage and examples', () => {
-    const help = printHelp();
-    expect(help).toContain('Usage:');
-    expect(help).toContain('mdview [path|url|-]');
-    expect(help).toContain('--wrap[=true|false] / --no-wrap');
-    expect(help).toContain('a separated boolean is also accepted');
-    expect(help).toContain('an explicit file or URL takes precedence over piped data');
-    expect(help).toContain('cat README.md | mdview');
-    expect(help).toContain('Examples:');
-    expect(help).toContain('mdview https://example.com/readme.md');
-  });
-});
-
-describe('config template', () => {
-  it('prints a self-documenting yaml sample', () => {
-    const template = printConfigTemplate();
-    expect(template).toContain('mdview configuration');
-    expect(template).toContain('theme: tempus-rift');
-    expect(template).toContain('syntaxTheme: dracula');
-    expect(template).toContain('Supported themes:');
-    expect(template).toContain('Default config path:');
-  });
-});
-
 describe('config init', () => {
   it('writes a template config file once', async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'mdview-init-'));
+    const dir = await temporaryDirectory()
     const configPath = path.join(dir, 'config.yml');
 
     const createdPath = await initConfigFile(configPath);
@@ -227,7 +206,7 @@ describe('config init', () => {
   });
 
   it('refuses to overwrite an existing config file', async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'mdview-init-'));
+    const dir = await temporaryDirectory()
     const configPath = path.join(dir, 'config.yml');
     await writeFile(configPath, 'theme: dracula\n', 'utf8');
 

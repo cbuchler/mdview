@@ -1,44 +1,49 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os';
+import { existsSync } from 'node:fs'
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const repoRoot = path.resolve(import.meta.dirname, '..');
 
 describe('shell completions', () => {
-  it('include the current cli flags and themes', async () => {
-    const bash = await readFile(path.join(repoRoot, 'completions', 'bash', 'mdview'), 'utf8');
-    const zsh = await readFile(path.join(repoRoot, 'completions', 'zsh', '_mdview'), 'utf8');
-    const fish = await readFile(path.join(repoRoot, 'completions', 'fish', 'mdview.fish'), 'utf8');
+  const available = (shell: string) => (process.env.PATH ?? '').split(path.delimiter)
+    .some((directory) => existsSync(path.join(directory, shell)))
 
-    expect(bash).toContain('tempus-rift');
-    expect(bash).toContain('--print-config');
-    expect(bash).toContain('--init-config');
-    expect(bash).toContain('--version');
+  it.skipIf(!available('zsh'))('completes files and flags after bare wrap in a real Zsh editor', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'mdview-zsh-completion-'))
+    try {
+      await writeFile(path.join(directory, 'README.md'), 'fixture')
+      const output = execFileSync('zsh', ['-df', path.join(repoRoot, 'test/fixtures/zsh-completion.zsh')], {
+        env: { ...process.env, MDVIEW_COMPLETIONS: path.join(repoRoot, 'completions/zsh'), MDVIEW_FIXTURE: directory },
+        encoding: 'utf8', timeout: 5000, maxBuffer: 32_768,
+      })
+      expect(output).toContain('RESULT:mdview --wrap README.md')
+      expect(output).toContain('RESULT:mdview --wrap --theme=')
+      expect(output).toContain('RESULT:mdview --config README.md')
+      expect(output).toContain('RESULT:mdview --theme dracula')
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  }, 7000)
 
-    expect(zsh).toContain('tempus-rift');
-    expect(zsh).toContain('--print-config');
-    expect(zsh).toContain('--init-config');
-    expect(zsh).toContain('--version');
-
-    expect(fish).toContain('tempus-rift');
-    expect(fish).toContain('-l print-config');
-    expect(fish).toContain('-l init-config');
-    expect(fish).toContain('-l version');
-  });
-
-  it('keeps wrap optional while config and theme arguments remain required', async () => {
-    const zsh = await readFile(path.join(repoRoot, 'completions', 'zsh', '_mdview'), 'utf8');
-    const fish = await readFile(path.join(repoRoot, 'completions', 'fish', 'mdview.fish'), 'utf8');
-    const fishWrap = fish.split('\n').find((line) => /-l wrap\b/.test(line));
-    expect(fishWrap).toBeDefined();
-    expect(fishWrap).not.toMatch(/\s-r(?:\s|$)/);
-    expect(fish).toMatch(/-l config -r /);
-    expect(fish).toMatch(/-l theme -r /);
-    expect(zsh).toMatch(/'--wrap\[[^\]]*\]'\s*\\/);
-    expect(zsh).toContain('--config=[config file path]:file:_files');
-    expect(zsh).toContain('--theme=[select viewer theme]:theme:');
+  it.skipIf(!available('fish'))('completes optional wrap and required arguments in Fish', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'mdview-fish-completion-'))
+    try {
+      await writeFile(path.join(directory, 'README.md'), 'fixture')
+      const complete = (query: string) => execFileSync('fish', [
+        '--no-config', '-c', 'complete --erase --command mdview; source "$argv[1]"; cd "$argv[2]"; complete --do-complete "$argv[3]"',
+        path.join(repoRoot, 'completions/fish/mdview.fish'), directory, query,
+      ], { encoding: 'utf8', timeout: 3000, maxBuffer: 16_384 })
+        .trim().split('\n').map((line) => line.split('\t')[0])
+      expect(complete('mdview --wrap READ')).toContain('README.md')
+      expect(complete('mdview --wrap --th')).toContain('--theme')
+      expect(complete('mdview --config READ')).toContain('README.md')
+      expect(complete('mdview --theme dra')).toContain('dracula')
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   });
 
   it('offers files and following flags after bare wrap in Bash', async () => {

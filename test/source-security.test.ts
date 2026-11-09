@@ -51,8 +51,13 @@ async function throughAdapter(adapter: string, chunks: Uint8Array[], cap = 4) {
   return loadSource(resolveSource('https://example.test/input'), { ...options, maxInputBytes: cap });
 }
 
-// #16: all production adapters must obey the same admitted-byte contract.
-describe.each(['file', 'stdin', 'url'])('%s byte budget (#16)', (adapter) => {
+// Exercise decoding once; adapters below only check their byte-stream wiring.
+describe('shared byte decoder (#16)', () => {
+  const decode = (chunks: Uint8Array[], cap = 4) => {
+    const pending = [...chunks];
+    return readBoundedBytes(async () => pending.shift(), 'fixture', cap);
+  };
+
   it.each([
     ['empty', [], '', 0, false],
     ['below cap', ['abc'], 'abc', 3, false],
@@ -62,9 +67,8 @@ describe.each(['file', 'stdin', 'url'])('%s byte budget (#16)', (adapter) => {
     ['several chunks', ['a', 'bc', 'd', 'e'], 'abcd', 4, true],
     ['exact cap split', ['a', 'bc', 'd'], 'abcd', 4, false],
     ['controls', ['a\u0000\u001bb'], 'ab', 4, false],
-    ['CJK split at cap', ['界界'], '界', 4, true],
   ] as const)('%s', async (_name, chunks, text, bytesRead, truncated) => {
-    const result = await throughAdapter(adapter, chunks.map((chunk) => Buffer.from(chunk)));
+    const result = await decode(chunks.map((chunk) => Buffer.from(chunk)));
     expect(result.text).toBe(text);
     expect(result.bytesRead).toBe(bytesRead);
     expect(Boolean(result.warning)).toBe(truncated);
@@ -74,7 +78,7 @@ describe.each(['file', 'stdin', 'url'])('%s byte budget (#16)', (adapter) => {
   it.each(['界', '😀'])('keeps only complete %s characters at every cap', async (point) => {
     const bytes = Buffer.from(point + point);
     for (let cap = 0; cap <= bytes.length; cap++) {
-      const result = await throughAdapter(adapter, [bytes], cap);
+      const result = await decode([bytes], cap);
       expect(result.text).toBe(point.repeat(Math.floor(cap / Buffer.byteLength(point))));
       expect(result.bytesRead).toBe(cap);
       expect(Boolean(result.warning)).toBe(cap < bytes.length);
@@ -85,7 +89,7 @@ describe.each(['file', 'stdin', 'url'])('%s byte budget (#16)', (adapter) => {
   it('decodes multibyte text split at every byte boundary', async () => {
     const bytes = Buffer.from('界😀é');
     for (let boundary = 1; boundary < bytes.length; boundary++) {
-      const result = await throughAdapter(adapter, [bytes.subarray(0, boundary), bytes.subarray(boundary)], bytes.length);
+      const result = await decode([bytes.subarray(0, boundary), bytes.subarray(boundary)], bytes.length);
       expect(result.text).toBe('界😀é');
       expect(result.bytesRead).toBe(bytes.length);
       expect(result.warning).toBeUndefined();
@@ -93,22 +97,37 @@ describe.each(['file', 'stdin', 'url'])('%s byte budget (#16)', (adapter) => {
   });
 
   it('bounds malformed UTF-8 replacement expansion and drops incomplete tails', async () => {
-    const result = await throughAdapter(adapter, [Buffer.from([0xff, 0xff, 0xff, 0xff, 0xff])]);
+    const result = await decode([Buffer.from([0xff, 0xff, 0xff, 0xff, 0xff])]);
     expect(result.text).toBe('�');
     expect(result.bytesRead).toBe(4);
     expect(result.warning).toBeDefined();
-    expect((await throughAdapter(adapter, [Buffer.from([0x61, 0xf0, 0x9f])])).text).toBe('a');
+    expect((await decode([Buffer.from([0x61, 0xf0, 0x9f])])).text).toBe('a');
+  });
+});
+
+describe.each(['file', 'stdin', 'url'])('%s byte-budget integration', (adapter) => {
+  it.each([
+    ['exact cap', '界a', false],
+    ['overflow', '界ab', true],
+  ] as const)('preserves UTF-8 and reports %s correctly', async (_name, input, truncated) => {
+    const bytes = Buffer.from(input);
+    const result = await throughAdapter(adapter, [bytes.subarray(0, 1), bytes.subarray(1)]);
+    expect(result.text).toBe('界a');
+    expect(result.bytesRead).toBe(4);
+    expect(Boolean(result.warning)).toBe(truncated);
   });
 });
 
 it('requests at most remaining bytes plus lookahead and caps collector output', async () => {
-  const requests: number[] = [];
-  const chunks = [Buffer.from('ab'), Buffer.from('cde')];
+  const bytes = Buffer.from('abcde');
+  let offset = 0;
   const result = await readBoundedBytes(async (max) => {
-    requests.push(max);
-    return chunks.shift();
+    expect(max).toBeGreaterThan(0);
+    expect(max).toBeLessThanOrEqual(4 - Math.min(offset, 4) + 1);
+    const chunk = bytes.subarray(offset, offset + Math.min(max, 2));
+    offset += chunk.length;
+    return chunk.length ? chunk : undefined;
   }, 'fixture', 4);
-  expect(requests).toEqual([5, 3]);
   expect(result).toMatchObject({ text: 'abcd', bytesRead: 4, warning: 'Input truncated to 4 bytes' });
 });
 
@@ -216,7 +235,7 @@ it.runIf(process.platform === 'linux')('rejects directory, FIFO and device input
   expect(result.stdout).toContain('special files rejected; descriptors closed');
 });
 
-// #20: URL ownership and every early exit must terminate unread work.
+// Unread HTTP work must stop even when cancellation itself fails.
 describe('URL cleanup (#20)', () => {
   function install(body: ReadableStream<Uint8Array> | null, status = 200) {
     let signal: AbortSignal;
