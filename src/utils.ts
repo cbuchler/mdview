@@ -118,10 +118,3 @@ export function splitWords(input: string): string[] {
 export function repeatSpace(count: number): string {
   return count <= 0 ? '' : ' '.repeat(count);
 }
-
-export function truncateText(input: string, maxLength: number): string {
-  if (input.length <= maxLength) {
-    return input;
-  }
-  return `${input.slice(0, Math.max(0, maxLength - 1))}…`;
-}
