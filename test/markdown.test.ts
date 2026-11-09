@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest'
+import { unified } from 'unified'
 import { renderMarkdownDocument } from '../src/markdown.js';
 import { resolveTheme } from '../src/theme.js';
 import { widthOf } from '../src/utils.js';
@@ -8,6 +9,24 @@ describe('renderMarkdownDocument', () => {
     width, padding, wrap: true,
     theme: resolveTheme('tempus-rift'), syntaxTheme: resolveTheme('dracula'), sourceName: 'test.md',
   }).lines.map((line) => line.map((segment) => segment.text).join(''));
+
+  it('reuses parsing for resize, reparses edits, and retains only the latest document', () => {
+    const parse = vi.spyOn(Object.getPrototypeOf(unified()), 'parse')
+    const first = '# Resize fixture\n\n' + 'Readable content '.repeat(20)
+    const second = '# Edited fixture\n\nFresh content'
+    try {
+      const wide = renderLines(first, 100)
+      const narrow = renderLines(first, 30)
+      expect(narrow.length).toBeGreaterThan(wide.length)
+      expect(parse).toHaveBeenCalledTimes(1)
+      expect(renderLines(second, 30).join('\n')).toContain('Fresh content')
+      expect(parse).toHaveBeenCalledTimes(2)
+      renderLines(first, 100)
+      expect(parse).toHaveBeenCalledTimes(3)
+    } finally {
+      parse.mockRestore()
+    }
+  })
 
   it.each([20, 24, 40, 80, 120])('fits table borders and padded cells into %i columns', (width) => {
     const lines = renderLines('| Name | Description | State |\n|---|---|---|\n| 界界 | A lengthy description with averylongwordthatmustwrap | Ready |', width);

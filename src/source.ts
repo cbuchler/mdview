@@ -1,4 +1,4 @@
-import { constants, existsSync } from 'node:fs';
+import { constants } from 'node:fs'
 import { open } from 'node:fs/promises';
 import type { Readable } from 'node:stream';
 import path from 'node:path';
@@ -44,13 +44,6 @@ export async function loadSource(source: ResolvedSource, options: { timeoutMs: n
     default:
       return assertNever(source.kind);
   }
-}
-
-export async function sourceExists(source: ResolvedSource): Promise<boolean> {
-  if (source.kind !== 'file') {
-    return true;
-  }
-  return existsSync(source.input);
 }
 
 async function readFromFile(filePath: string, maxInputBytes: number): Promise<LoadResult> {

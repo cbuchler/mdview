@@ -3,7 +3,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
-import React from 'react';
 import { render } from 'ink';
 import { expect, it, vi } from 'vitest';
 import { App } from '../src/app.js';

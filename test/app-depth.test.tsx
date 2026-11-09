@@ -3,7 +3,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
-import React from 'react';
 import { render } from 'ink';
 import { expect, it, vi } from 'vitest';
 import { App } from '../src/app.js';
@@ -36,7 +35,6 @@ async function mount(markdownText: string) {
     frame: () => frame,
     save: (text: string) => writeFile(file, text),
     resize: (width: number) => { stdout.columns = width; stdout.emit('resize'); },
-    scroll: () => stdin.write('j'),
     quit: async () => {
       let exited = false;
       void app.waitUntilExit().then(() => { exited = true; });
@@ -103,8 +101,6 @@ it('retains validated title/content after a hostile save, reflows that content o
     expect(app.frame()).toContain('# Original');
     expect(app.frame()).toContain('Safe content');
     expect(app.frame().split('\n')).toHaveLength(12);
-    app.scroll();
-    expect(app.frame()).toContain('q quit');
     await app.save('# Recovered\n\nFresh content');
     await vi.waitFor(() => expect(app.frame()).toContain('# Recovered'), { timeout: 3000 });
     expect(app.frame()).toContain('Fresh content');

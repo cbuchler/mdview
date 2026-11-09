@@ -22,13 +22,6 @@ export function defaultConfigPath(): string {
   return path.join(os.homedir(), '.config', 'mdview', 'config.yml');
 }
 
-export function defaultConfigPaths(): string[] {
-  return [
-    path.join(os.homedir(), '.config', 'mdview', 'config.yml'),
-    path.join(os.homedir(), '.config', 'mdview', 'config.yaml'),
-  ];
-}
-
 export function parseCliArgs(argv: string[]): CliOptions {
   const options: CliOptions = {};
   const positionals: string[] = [];
@@ -124,77 +117,19 @@ export function parseCliArgs(argv: string[]): CliOptions {
   return options;
 }
 
-function readConfigValue<T>(value: unknown, fallback: T): T {
-  return value === undefined ? fallback : (value as T);
-}
-
 export async function loadConfig(cli: CliOptions): Promise<AppConfig> {
-  const configPath = cli.configPath ?? defaultConfigPath();
-  const fileConfig = await readConfigFile(configPath);
-  const merged: AppConfig = {
-    theme: readConfigValue(fileConfig.theme, DEFAULT_CONFIG.theme),
-    syntaxTheme: readConfigValue(fileConfig.syntaxTheme, DEFAULT_CONFIG.syntaxTheme),
-    wrap: readConfigValue(fileConfig.wrap, DEFAULT_CONFIG.wrap),
-    padding: readConfigValue(fileConfig.padding, DEFAULT_CONFIG.padding),
-    refreshIntervalMs: readConfigValue(fileConfig.refreshIntervalMs, DEFAULT_CONFIG.refreshIntervalMs),
-    timeoutMs: readConfigValue(fileConfig.timeoutMs, DEFAULT_CONFIG.timeoutMs),
-    maxInputBytes: readConfigValue(fileConfig.maxInputBytes, DEFAULT_CONFIG.maxInputBytes),
-    watch: readConfigValue(fileConfig.watch, DEFAULT_CONFIG.watch),
-  };
-
+  const fileConfig = await readConfigFile(cli.configPath ?? defaultConfigPath())
+  const merged = { ...DEFAULT_CONFIG, ...fileConfig }
   return {
-    ...DEFAULT_CONFIG,
-    ...merged,
-    ...omitUndefined(cli),
-    wrap: cli.wrap ?? merged.wrap,
     theme: cli.theme ?? merged.theme,
     syntaxTheme: cli.syntaxTheme ?? merged.syntaxTheme,
+    wrap: cli.wrap ?? merged.wrap,
     padding: cli.padding ?? merged.padding,
     refreshIntervalMs: cli.refreshIntervalMs ?? merged.refreshIntervalMs,
     timeoutMs: cli.timeoutMs ?? merged.timeoutMs,
     maxInputBytes: cli.maxInputBytes ?? merged.maxInputBytes,
     watch: cli.watch ?? merged.watch,
-  };
-}
-
-function omitUndefined(cli: CliOptions): Partial<AppConfig> {
-  const result: Partial<AppConfig> = {};
-  if (cli.theme) {
-    result.theme = cli.theme;
   }
-  if (cli.syntaxTheme) {
-    result.syntaxTheme = cli.syntaxTheme;
-  }
-  if (cli.wrap !== undefined) {
-    result.wrap = cli.wrap;
-  }
-  if (cli.padding !== undefined) {
-    result.padding = cli.padding;
-  }
-  if (cli.refreshIntervalMs !== undefined) {
-    result.refreshIntervalMs = cli.refreshIntervalMs;
-  }
-  if (cli.timeoutMs !== undefined) {
-    result.timeoutMs = cli.timeoutMs;
-  }
-  if (cli.maxInputBytes !== undefined) {
-    result.maxInputBytes = cli.maxInputBytes;
-  }
-  if (cli.watch !== undefined) {
-    result.watch = cli.watch;
-  }
-  return result;
-}
-
-function parseNumber(value: string | undefined): number | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    throw new Error(`Invalid number: ${value}`);
-  }
-  return parsed;
 }
 
 async function readConfigFile(configPath: string): Promise<Partial<AppConfig>> {
@@ -404,13 +339,6 @@ function validateConfigShape(configPath: string, value: unknown): Partial<AppCon
   }
 
   return config;
-}
-
-function assertString(value: unknown, configPath: string, key: string): string {
-  if (typeof value !== 'string') {
-    throw configError(configPath, key, 'expected a string');
-  }
-  return value;
 }
 
 function assertBoolean(value: unknown, configPath: string, key: string): boolean {

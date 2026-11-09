@@ -14,28 +14,26 @@ export function watchMarkdownFile(
       pollInterval: Math.max(25, Math.floor(refreshIntervalMs / 2)),
     },
     ignored: (candidate) => /(^|[\\/])(\.|#.*#|.*~|.*\.swp)$/.test(path.basename(candidate)),
-  });
+  })
 
-  const schedule = debounce(onChange, refreshIntervalMs);
-  watcher.on('add', schedule);
-  watcher.on('change', schedule);
-  watcher.on('unlink', onUnlink);
-  watcher.on('error', onChange);
-
-  return () => {
-    void watcher.close();
-  };
-}
-
-function debounce(fn: () => void, delayMs: number): () => void {
-  let timer: NodeJS.Timeout | undefined;
-  return () => {
-    if (timer) {
-      clearTimeout(timer);
-    }
+  let disposed = false
+  let timer: NodeJS.Timeout | undefined
+  const schedule = () => {
+    if (disposed) return
+    clearTimeout(timer)
     timer = setTimeout(() => {
-      timer = undefined;
-      fn();
-    }, delayMs);
-  };
+      timer = undefined
+      onChange()
+    }, refreshIntervalMs)
+  }
+  watcher.on('add', schedule)
+  watcher.on('change', schedule)
+  watcher.on('unlink', () => { if (!disposed) onUnlink() })
+  watcher.on('error', () => { if (!disposed) onChange() })
+
+  return () => {
+    disposed = true
+    clearTimeout(timer)
+    void watcher.close()
+  }
 }
