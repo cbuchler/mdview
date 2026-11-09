@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { render } from 'ink';
 import React from 'react';
 import { initConfigFile, loadConfig, parseCliArgs, printConfigTemplate, printHelp } from './config.js';
 import { App } from './app.js';
@@ -8,6 +7,7 @@ import { renderPlainText } from './plain.js';
 import { sanitizeDisplayText } from './utils.js';
 import { VERSION } from './version.js';
 import { formatCliError } from './errors.js';
+import { acquireKeyboardInput, runTerminalApp } from './terminal.js';
 
 async function main(): Promise<void> {
   const cli = parseCliArgs(process.argv.slice(2));
@@ -41,7 +41,12 @@ async function main(): Promise<void> {
   const config = await loadConfig(cli);
   const source = resolveSource(cli.input);
 
-  if (!process.stdout.isTTY) {
+  // An explicit '-' with terminal stdin is canonical document input until EOF.
+  const keyboard = process.stdout.isTTY && !(source.kind === 'stdin' && process.stdin.isTTY)
+    ? acquireKeyboardInput()
+    : undefined;
+
+  if (!keyboard) {
     const result = await loadSource(source, {
       timeoutMs: config.timeoutMs,
       maxInputBytes: config.maxInputBytes,
@@ -54,8 +59,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  render(React.createElement(App, { source, config }), {
-    exitOnCtrlC: false,
+  await runTerminalApp(React.createElement(App, { source, config }), keyboard, () => {
+    // Stop only our document read when q arrives before the producer reaches EOF.
+    if (source.kind === 'stdin' && !process.stdin.isTTY && !process.stdin.destroyed) {
+      process.stdin.destroy();
+    }
   });
 }
 

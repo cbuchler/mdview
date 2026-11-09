@@ -13,7 +13,7 @@ _mdview() {
     '--timeout=[set network timeout]:duration' \
     '--max-bytes=[set maximum input size]:bytes' \
     '--padding=[set horizontal padding]:number' \
-    '--wrap[enable wrapping]' \
+    '--wrap[enable wrapping; optional =true or =false]' \
     '--no-wrap[disable wrapping]' \
     '--watch[enable file watching]' \
     '--no-watch[disable file watching]' \

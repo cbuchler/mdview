@@ -35,7 +35,7 @@ export function parseCliArgs(argv: string[]): CliOptions {
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (!arg.startsWith('-')) {
+    if (arg === '-' || !arg.startsWith('-')) {
       positionals.push(arg);
       continue;
     }
@@ -85,9 +85,21 @@ export function parseCliArgs(argv: string[]): CliOptions {
       case '--padding':
         options.padding = parseIntegerOption(takeValue(), flag, 0, 100);
         break;
-      case '--wrap':
-        options.wrap = parseBooleanOption(takeValue(), flag);
+      case '--wrap': {
+        if (inlineValue !== undefined) {
+          options.wrap = parseBooleanOption(inlineValue, flag);
+          break;
+        }
+        let separatedValue: boolean | undefined;
+        try {
+          separatedValue = parseBoolean(argv[index + 1]);
+        } catch {
+          // A following filename, flag, or stdin sentinel is not a boolean value.
+        }
+        options.wrap = separatedValue ?? true;
+        if (separatedValue !== undefined) index += 1;
         break;
+      }
       case '--no-wrap':
         options.wrap = false;
         break;
@@ -199,11 +211,12 @@ async function readConfigFile(configPath: string): Promise<Partial<AppConfig>> {
 export function printHelp(): string {
   return [
     'Usage:',
-    '  mdview [path|url]',
+    '  mdview [path|url|-]',
     '  cat README.md | mdview',
     '',
     'Input detection:',
-    '  - stdin when data is piped in',
+    '  - omitted input or - reads stdin',
+    '  - an explicit file or URL takes precedence over piped data',
     '  - URL when the argument starts with http:// or https://',
     '  - file path otherwise',
     '',
@@ -214,7 +227,8 @@ export function printHelp(): string {
     '  --timeout <ms|1s|1m>',
     '  --max-bytes <bytes|1mb|2mb>',
     '  --padding <number>',
-    '  --wrap / --no-wrap',
+    '  --wrap[=true|false] / --no-wrap',
+    '    A bare --wrap enables wrapping; a separated boolean is also accepted.',
     '  --watch / --no-watch',
     '  --config <path>',
     '  --print-config',

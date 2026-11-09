@@ -1,6 +1,6 @@
 {
   "name": "mdview",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "Terminal markdown previewer with live reload",
   "license": "GPL-3.0-or-later",
@@ -35,8 +35,9 @@
     "@types/node": "^24.3.1",
     "@types/react": "^18.3.24",
     "react-devtools-core": "^4.28.5",
-    "tsx": "^4.20.5",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "vite": "^7.3.7",
+    "vitest": "^4.1.12"
   }
 }

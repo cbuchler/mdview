@@ -35,8 +35,52 @@ describe('parseCliArgs', () => {
   });
 
   it('rejects malformed values with flag context', () => {
-    expect(() => parseCliArgs(['--wrap', 'maybe'])).toThrow(/Invalid value for --wrap/i);
+    expect(() => parseCliArgs(['--wrap=maybe'])).toThrow(/Invalid value for --wrap/i);
+    expect(() => parseCliArgs(['--wrap='])).toThrow(/Invalid value for --wrap/i);
     expect(() => parseCliArgs(['--padding', 'abc'])).toThrow(/Invalid value for --padding/i);
+  });
+
+  it.each([
+    ['true', true], ['1', true], ['yes', true], ['on', true],
+    ['false', false], ['0', false], ['no', false], ['off', false],
+    ['  TrUe  ', true], ['  OFF  ', false],
+  ] as const)('accepts inline and separated wrap boolean %j', (value, expected) => {
+    expect(parseCliArgs([`--wrap=${value}`, 'README.md'])).toEqual({ wrap: expected, input: 'README.md' });
+    expect(parseCliArgs(['--wrap', value, 'README.md'])).toEqual({ wrap: expected, input: 'README.md' });
+  });
+
+  it.each([
+    [['--wrap'], { wrap: true }],
+    [['--wrap', 'README.md'], { wrap: true, input: 'README.md' }],
+    [['--wrap', 'maybe'], { wrap: true, input: 'maybe' }],
+    [['--wrap', './false'], { wrap: true, input: './false' }],
+    [['false', '--wrap'], { wrap: true, input: 'false' }],
+    [['--wrap', '--theme', 'dracula'], { wrap: true, theme: 'dracula' }],
+    [['--wrap', '--no-watch'], { wrap: true, watch: false }],
+    [['--wrap', '--no-wrap'], { wrap: false }],
+    [['--no-wrap', '--wrap'], { wrap: true }],
+    [['--wrap=false', '--wrap=true', '--no-wrap'], { wrap: false }],
+    [['--no-wrap', '--wrap', 'yes'], { wrap: true }],
+  ])('handles optional wrap values and repeated switches: %j', (argv, expected) => {
+    expect(parseCliArgs(argv as string[])).toEqual(expected);
+  });
+
+  it.each([
+    [['-'], { input: '-' }],
+    [['-', '--theme', 'dracula'], { input: '-', theme: 'dracula' }],
+    [['--no-wrap', '-'], { input: '-', wrap: false }],
+    [['--wrap', '-'], { input: '-', wrap: true }],
+    [['--wrap', '-', '--theme', 'dracula'], { input: '-', wrap: true, theme: 'dracula' }],
+  ])('accepts the explicit stdin sentinel among flags: %j', (argv, expected) => {
+    expect(parseCliArgs(argv as string[])).toEqual(expected);
+  });
+
+  it('continues rejecting unknown options and requiring values for other flags', () => {
+    expect(() => parseCliArgs(['--unknown'])).toThrow('Unknown flag: --unknown');
+    expect(() => parseCliArgs(['--wrap', '--unknown'])).toThrow('Unknown flag: --unknown');
+    expect(() => parseCliArgs(['--'])).toThrow('Unknown flag: --');
+    expect(() => parseCliArgs(['--theme'])).toThrow('Missing value for --theme');
+    expect(() => parseCliArgs(['--padding'])).toThrow('Missing value for --padding');
   });
 });
 
@@ -139,7 +183,7 @@ describe('yaml validation', () => {
 
 describe('version', () => {
   it('loads version from package.json', () => {
-    expect(VERSION).toBe('0.1.0');
+    expect(VERSION).toBe('0.1.1');
   });
 });
 
@@ -147,7 +191,10 @@ describe('help output', () => {
   it('shows usage and examples', () => {
     const help = printHelp();
     expect(help).toContain('Usage:');
-    expect(help).toContain('mdview [path|url]');
+    expect(help).toContain('mdview [path|url|-]');
+    expect(help).toContain('--wrap[=true|false] / --no-wrap');
+    expect(help).toContain('a separated boolean is also accepted');
+    expect(help).toContain('an explicit file or URL takes precedence over piped data');
     expect(help).toContain('cat README.md | mdview');
     expect(help).toContain('Examples:');
     expect(help).toContain('mdview https://example.com/readme.md');
