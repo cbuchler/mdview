@@ -106,6 +106,7 @@ export async function runTerminalApp(
   keyboard: KeyboardInput,
   onExit: () => void = () => {},
   renderApp: typeof render = render,
+  signal?: AbortSignal,
 ): Promise<void> {
   let instance: ReturnType<typeof render> | undefined;
   let failed = false;
@@ -117,6 +118,9 @@ export async function runTerminalApp(
   // Also observe errors if construction itself throws before the exit race exists.
   void inputFailure.catch(() => {});
   keyboard.stream.on('error', onError);
+  const onAbort = () => onError(new Error('Terminal session interrupted'))
+  signal?.addEventListener('abort', onAbort, { once: true })
+  if (signal?.aborted) onAbort()
   try {
     instance = renderApp(null, { stdin: keyboard.stream, exitOnCtrlC: false });
     const completion = Promise.race([instance.waitUntilExit(), inputFailure]);
@@ -142,6 +146,7 @@ export async function runTerminalApp(
       }
     }
     keyboard.stream.off('error', onError);
+    signal?.removeEventListener('abort', onAbort)
     if (!failed && (cleanupError ?? inputError)) throw cleanupError ?? inputError;
   }
 }

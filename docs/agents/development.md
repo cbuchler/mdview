@@ -52,7 +52,10 @@ Bun builds standalone binaries. Read the relevant source and
 - `src/source.ts`, `src/bounded-reader.ts`: file, stdin, and HTTP input;
   byte limits, decoding, cancellation, and cleanup.
 - `src/markdown.ts`, `src/markdown-depth.ts`: rendering, wrapping, and
-  Markdown depth validation.
+  Markdown depth validation inside the render child.
+- `src/render-supervisor.ts`, `src/render-worker.ts`, `src/render-protocol.ts`:
+  child ownership, render deadlines, bounded protocol records, and validation.
+  `src/render-text.ts` converts validated output to plain text.
 - `src/app.tsx`, `src/terminal.ts`, `src/watcher.ts`: interactive display,
   keyboard input, terminal lifecycle, resize, and reload.
 - `src/plain.ts`: noninteractive output. `src/version.ts`: CLI version.

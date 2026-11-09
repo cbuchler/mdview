@@ -35,7 +35,10 @@ it('reflows on resize without input and reloads saved and atomically replaced fi
     stdout.columns = 40;
     stdout.rows = 24;
     stdout.emit('resize');
-    await vi.waitFor(() => expect(codeBorder()?.length).toBe(38));
+    await vi.waitFor(() => {
+      expect(codeBorder()?.length).toBe(38)
+      expect(frame).toContain('available width')
+    });
     expect(frame.split('\n')).toHaveLength(24);
     expect(frame).toContain('Description');
     expect(frame).toContain('available width');

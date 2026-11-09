@@ -4,12 +4,13 @@ import type { AppConfig, LoadResult, ResolvedSource, RenderedDocument } from './
 import { clamp, sanitizeDisplayText } from './utils.js';
 import { resolveTheme } from './theme.js';
 import { loadSource } from './source.js';
-import { renderMarkdownDocument } from './markdown.js';
+import { RenderSupervisor, RenderCancelledError } from './render-supervisor.js'
 import { watchMarkdownFile } from './watcher.js';
 
 interface AppProps {
   source: ResolvedSource;
   config: AppConfig;
+  renderer?: RenderSupervisor
 }
 
 type LoadState =
@@ -22,11 +23,13 @@ interface RenderedSource {
   document: RenderedDocument;
 }
 
-export function App({ source, config }: AppProps): React.JSX.Element {
+export function App({ source, config, renderer: suppliedRenderer }: AppProps): React.JSX.Element {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const theme = resolveTheme(config.theme);
-  const syntaxTheme = resolveTheme(config.syntaxTheme);
+  const renderer = useMemo(() => suppliedRenderer ?? new RenderSupervisor(), [suppliedRenderer])
+  const renderRequest = useRef(0)
+  const [document, setDocument] = useState<RenderedDocument | undefined>()
   const [{ columns, rows }, setDimensions] = useState(() => ({
     columns: stdout.columns || 80,
     rows: stdout.rows || 24,
@@ -45,6 +48,8 @@ export function App({ source, config }: AppProps): React.JSX.Element {
 
   const load = useMemo(
     () => async (reason?: string): Promise<void> => {
+      renderer.cancel()
+      ++renderRequest.current
       const requestId = activeRequest.current + 1;
       activeRequest.current = requestId;
       setState((current) => ({
@@ -80,12 +85,19 @@ export function App({ source, config }: AppProps): React.JSX.Element {
         }
       }
     },
-    [config.maxInputBytes, config.timeoutMs, source],
+    [config.maxInputBytes, config.timeoutMs, source, renderer],
   );
 
   useEffect(() => {
     void load();
-  }, [load]);
+    return () => {
+      ++activeRequest.current
+      ++renderRequest.current
+      renderer.cancel()
+    }
+  }, [load, renderer]);
+
+  useEffect(() => () => { void renderer.dispose() }, [renderer])
 
   useEffect(() => {
     if (!source.canWatch || !config.watch) {
@@ -99,6 +111,9 @@ export function App({ source, config }: AppProps): React.JSX.Element {
         void load(`Reloading ${source.displayName}...`);
       },
       () => {
+        ++activeRequest.current
+        ++renderRequest.current
+        renderer.cancel()
         setState({
           phase: 'error',
           error: `${source.displayName} was removed`,
@@ -112,48 +127,33 @@ export function App({ source, config }: AppProps): React.JSX.Element {
     };
   }, [config.refreshIntervalMs, config.watch, load, source]);
 
-  const rendered = useMemo<{ good?: RenderedSource; document?: RenderedDocument; error?: string }>(() => {
-    if (!state.result) {
-      return {};
-    }
-    const options = {
+  useEffect(() => {
+    const result = state.result
+    if (!result) return
+    const requestId = ++renderRequest.current
+    let mounted = true
+    void renderer.render(result.text, {
       width: columns,
-      theme,
+      theme: config.theme,
       wrap: config.wrap,
       padding,
-      syntaxTheme,
-      sourceName: state.result.displayName,
-    };
-    try {
-      const document = renderMarkdownDocument(state.result.text, options);
-      return { good: { result: state.result, document }, document };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const previous = lastGood.current;
-      if (previous && previous.result !== state.result) {
-        try {
-          // Reflow only validated content, without loading the source again.
-          const document = renderMarkdownDocument(previous.result.text, { ...options, sourceName: previous.result.displayName });
-          return { document, error: message };
-        } catch {
-          // A failed reflow must not discard the last successful frame.
-        }
-      }
-      return { document: previous?.document, error: message };
-    }
-  }, [columns, padding, config.wrap, source.displayName, state.result, syntaxTheme, theme]);
+      syntaxTheme: config.syntaxTheme,
+      sourceName: result.displayName,
+    }, config.maxInputBytes).then((nextDocument) => {
+      if (!mounted || renderRequest.current !== requestId) return
+      lastGood.current = { result, document: nextDocument }
+      setDocument(nextDocument)
+    }).catch((error: unknown) => {
+      if (!mounted || renderRequest.current !== requestId || error instanceof RenderCancelledError) return
+      const message = error instanceof Error ? error.message : String(error)
+      setState({ phase: 'error', error: message, result: lastGood.current?.result })
+    })
+    return () => { mounted = false }
+  }, [columns, padding, config.wrap, config.theme, config.syntaxTheme, config.maxInputBytes, state.result, renderer])
 
-  useEffect(() => {
-    if (rendered.good) {
-      lastGood.current = rendered.good;
-    }
-  }, [rendered]);
-
-  const document = rendered.document;
-  const renderError = rendered.error;
-  const isError = Boolean(renderError) || state.phase === 'error';
+  const isError = state.phase === 'error';
   const loadingMessage = state.phase === 'loading' ? state.message : undefined;
-  const note = renderError ?? (state.phase === 'error' ? state.error : loadingMessage ?? state.result?.warning);
+  const note = state.phase === 'error' ? state.error : loadingMessage ?? state.result?.warning;
   const contentHeight = Math.max(1, rows - 2 - (note ? 1 : 0));
 
   const availableLines = document?.lines ?? [];
