@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.1 (unreleased)
+## 0.1.1 — 2026-11-09
 
 - Bound file, URL, and stdin reads by bytes, preserving complete UTF-8 characters and rejecting non-regular file inputs (#16).
 - Cancel truncated HTTP responses promptly and preserve request timeout and error handling (#20).
