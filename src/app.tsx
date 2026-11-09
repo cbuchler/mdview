@@ -42,7 +42,6 @@ export function App({ source, config }: AppProps): React.JSX.Element {
   const [state, setState] = useState<LoadState>({ phase: 'loading', message: `Loading ${source.displayName}...` });
   const activeRequest = useRef(0);
   const lastGood = useRef<RenderedSource | undefined>(undefined);
-  const fileWatcher = useRef<(() => void) | undefined>(undefined);
 
   const load = useMemo(
     () => async (reason?: string): Promise<void> => {
@@ -108,10 +107,8 @@ export function App({ source, config }: AppProps): React.JSX.Element {
       },
     );
 
-    fileWatcher.current = dispose;
     return () => {
       dispose();
-      fileWatcher.current = undefined;
     };
   }, [config.refreshIntervalMs, config.watch, load, source]);
 
