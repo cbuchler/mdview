@@ -20,7 +20,7 @@ Make sure `~/.local/bin` is on your `PATH`. The binary runs on Linux x86-64. For
 
 ### From source
 
-With Node.js and npm installed:
+Use Node.js 22.12 or newer and npm to build from source:
 
 ```bash
 git clone https://github.com/cbuchler/mdview.git
@@ -49,7 +49,9 @@ cat README.md | mdview
 mdview - < README.md
 ```
 
-Pass a file path or an HTTP(S) URL. Use `-`, or omit the argument, to read stdin. An explicit file or URL takes precedence over piped input. With no argument or piped input, `mdview` prints help.
+Pass a file path or an HTTP(S) URL. Use `-`, or omit the argument, to read stdin. An explicit file or URL takes precedence over piped input. With no argument and no piped input, `mdview` prints help.
+
+The Node CLI opens piped input interactively when a controlling terminal is available for keyboard input. Otherwise, it prints plain text. Bun and compiled binaries print plain text whenever stdin is redirected, because Bun cannot safely close a separate terminal keyboard reader. Normal file and URL viewing with terminal stdin remains interactive in both runtimes. Running `mdview -` with terminal input reads until EOF (`Ctrl+D`), then prints plain text.
 
 ### Keys
 
@@ -69,7 +71,7 @@ Resizing the terminal rewraps the text, code blocks, and table cells. If a table
 
 Long lines wrap by default. `--no-wrap` leaves prose unwrapped and clips it to the terminal width. Code blocks and tables still wrap.
 
-URLs have a timeout and an input size limit. `mdview` removes terminal control sequences from input and skips embedded HTML. Character widths can vary with your terminal and font.
+URLs have a timeout and an input size limit. `mdview` removes terminal control sequences from input and skips embedded HTML. Markdown nesting is limited to 128 AST child levels, including structural and inline nodes (root = 0). Character widths can vary with your terminal and font.
 
 ## Options
 
@@ -83,7 +85,7 @@ Run `mdview --help` for help.
 | `--timeout <duration>` | Set the URL timeout, such as `8s` |
 | `--max-bytes <size>` | Limit input size, such as `1mb` |
 | `--padding <number>` | Set left and right padding |
-| `--wrap` / `--no-wrap` | Turn prose wrapping on or off |
+| `--wrap[=<boolean>]` / `--no-wrap` | Turn prose wrapping on or off |
 | `--watch` / `--no-watch` | Turn file reloads on or off |
 | `--config <path>` | Use a config file |
 | `--print-config` | Print the config template |
@@ -92,6 +94,8 @@ Run `mdview --help` for help.
 | `--version` | Show the version |
 
 Durations accept milliseconds, seconds, or minutes: `150`, `150ms`, `8s`, `1m`. Sizes accept bytes, KB, MB, or GB: `1024`, `1kb`, `2mb`, `1gb`.
+
+Bare `--wrap` enables wrapping. Explicit values such as `--wrap=false` and `--wrap false` are also accepted. For a file named `false`, use `./false` after `--wrap`, or put the filename first.
 
 ## Configure
 
@@ -171,6 +175,8 @@ cp /path/to/mdview/completions/fish/mdview.fish ~/.config/fish/completions/
 ```
 
 ## Develop
+
+Use Node.js 22.12 or newer. The Linux terminal tests also require Python 3; they check Bun behavior when Bun is installed.
 
 ```bash
 npm ci

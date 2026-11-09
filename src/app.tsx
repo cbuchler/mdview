@@ -17,6 +17,11 @@ type LoadState =
   | { phase: 'ready'; result: LoadResult }
   | { phase: 'error'; error: string; note?: string; result?: LoadResult };
 
+interface RenderedSource {
+  result: LoadResult;
+  document: RenderedDocument;
+}
+
 export function App({ source, config }: AppProps): React.JSX.Element {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -35,11 +40,8 @@ export function App({ source, config }: AppProps): React.JSX.Element {
   const padding = Math.min(config.padding, Math.max(0, Math.floor((columns - 4) / 2)));
   const [scrollOffset, setScrollOffset] = useState(0);
   const [state, setState] = useState<LoadState>({ phase: 'loading', message: `Loading ${source.displayName}...` });
-  const loadingMessage = state.phase === 'loading' ? state.message : undefined;
-  const note = state.phase === 'error' ? state.error : loadingMessage ?? state.result?.warning;
-  const contentHeight = Math.max(1, rows - 2 - (note ? 1 : 0));
   const activeRequest = useRef(0);
-  const lastGood = useRef<LoadResult | undefined>(undefined);
+  const lastGood = useRef<RenderedSource | undefined>(undefined);
   const fileWatcher = useRef<(() => void) | undefined>(undefined);
 
   const load = useMemo(
@@ -47,9 +49,9 @@ export function App({ source, config }: AppProps): React.JSX.Element {
       const requestId = activeRequest.current + 1;
       activeRequest.current = requestId;
       setState((current) => ({
-        phase: current.phase === 'ready' ? 'loading' : 'loading',
+        phase: 'loading',
         message: reason ?? `Loading ${source.displayName}...`,
-        result: current.result ?? lastGood.current,
+        result: lastGood.current?.result,
         note: current.phase === 'ready' ? 'Refreshing' : undefined,
       }));
 
@@ -61,7 +63,6 @@ export function App({ source, config }: AppProps): React.JSX.Element {
         if (activeRequest.current !== requestId) {
           return;
         }
-        lastGood.current = result;
         setState({ phase: 'ready', result });
       } catch (error) {
         if (activeRequest.current !== requestId) {
@@ -73,7 +74,7 @@ export function App({ source, config }: AppProps): React.JSX.Element {
             phase: 'error',
             error: message,
             note: 'Using last known content',
-            result: lastGood.current,
+            result: lastGood.current.result,
           });
         } else {
           setState({ phase: 'error', error: message });
@@ -99,39 +100,64 @@ export function App({ source, config }: AppProps): React.JSX.Element {
         void load(`Reloading ${source.displayName}...`);
       },
       () => {
-        setState((current) => ({
+        setState({
           phase: 'error',
           error: `${source.displayName} was removed`,
-          result: current.result ?? lastGood.current,
-        }));
+          result: lastGood.current?.result,
+        });
       },
     );
 
     fileWatcher.current = dispose;
-    setState((current) => ({
-      phase: current.phase === 'error' ? 'error' : 'loading',
-      message: source.canWatch ? 'Watching for changes...' : current.phase === 'loading' ? current.message : undefined,
-      result: current.result,
-    }) as LoadState);
     return () => {
       dispose();
       fileWatcher.current = undefined;
     };
   }, [config.refreshIntervalMs, config.watch, load, source]);
 
-  const document = useMemo<RenderedDocument | undefined>(() => {
+  const rendered = useMemo<{ good?: RenderedSource; document?: RenderedDocument; error?: string }>(() => {
     if (!state.result) {
-      return undefined;
+      return {};
     }
-    return renderMarkdownDocument(state.result.text, {
+    const options = {
       width: columns,
       theme,
       wrap: config.wrap,
       padding,
       syntaxTheme,
       sourceName: state.result.displayName,
-    });
+    };
+    try {
+      const document = renderMarkdownDocument(state.result.text, options);
+      return { good: { result: state.result, document }, document };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const previous = lastGood.current;
+      if (previous && previous.result !== state.result) {
+        try {
+          // Reflow only validated content, without loading the source again.
+          const document = renderMarkdownDocument(previous.result.text, { ...options, sourceName: previous.result.displayName });
+          return { document, error: message };
+        } catch {
+          // A failed reflow must not discard the last successful frame.
+        }
+      }
+      return { document: previous?.document, error: message };
+    }
   }, [columns, padding, config.wrap, source.displayName, state.result, syntaxTheme, theme]);
+
+  useEffect(() => {
+    if (rendered.good) {
+      lastGood.current = rendered.good;
+    }
+  }, [rendered]);
+
+  const document = rendered.document;
+  const renderError = rendered.error;
+  const isError = Boolean(renderError) || state.phase === 'error';
+  const loadingMessage = state.phase === 'loading' ? state.message : undefined;
+  const note = renderError ?? (state.phase === 'error' ? state.error : loadingMessage ?? state.result?.warning);
+  const contentHeight = Math.max(1, rows - 2 - (note ? 1 : 0));
 
   const availableLines = document?.lines ?? [];
   const maxScroll = Math.max(0, availableLines.length - contentHeight);
@@ -178,7 +204,7 @@ export function App({ source, config }: AppProps): React.JSX.Element {
 
   const percent = availableLines.length === 0 ? 0 : Math.min(100, Math.round(((scrollOffset + contentHeight) / availableLines.length) * 100));
   const sourceStatus = source.canWatch && config.watch ? 'watching' : 'static';
-  const progress = state.phase === 'error' && !state.result ? 'error' : state.phase === 'loading' ? 'loading' : `${percent}%`;
+  const progress = isError && !document ? 'error' : state.phase === 'loading' ? 'loading' : `${percent}%`;
   const parseStatus = document ? `parsed in ${document.parseMs.toFixed(0)}ms` : 'parsing...';
   const title = document?.title ?? source.displayName;
 
@@ -195,7 +221,7 @@ export function App({ source, config }: AppProps): React.JSX.Element {
       <Box flexDirection="column" height={Math.max(1, rows - 2)} flexShrink={0} paddingX={padding} overflow="hidden">
         {note ? (
           <Box height={1} flexShrink={0}>
-            <Text color={state.phase === 'error' ? theme.error : theme.warning} bold wrap="truncate-end">
+            <Text color={isError ? theme.error : theme.warning} bold wrap="truncate-end">
               {sanitizeDisplayText(note)}
             </Text>
           </Box>

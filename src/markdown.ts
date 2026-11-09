@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { stripControlChars, graphemes, repeatSpace, splitWords, widthOf } from './utils.js';
 import type { RenderLine, RenderedDocument, RenderSegment, RenderSegmentStyle } from './types.js';
 import type { Theme } from './theme.js';
+import { markdownDepthError, validateMarkdownDepth } from './markdown-depth.js';
 
 const inlineParser = unified().use(remarkParse).use(remarkGfm);
 
@@ -21,7 +22,17 @@ export function renderMarkdownDocument(
   },
 ): RenderedDocument {
   const started = performance.now();
-  const tree = inlineParser.parse(markdown) as MdNode;
+  let tree: MdNode;
+  try {
+    tree = inlineParser.parse(markdown) as MdNode;
+  } catch (error) {
+    // A parser stack overflow happens before there is an AST to validate.
+    if (error instanceof RangeError && /maximum call stack|too much recursion/i.test(error.message)) {
+      throw markdownDepthError();
+    }
+    throw error;
+  }
+  validateMarkdownDepth(tree);
   const title = inferTitle(tree, options.sourceName);
   const body = renderBlocks(tree.children ?? [], {
     width: Math.max(1, options.width - options.padding * 2),
@@ -493,6 +504,22 @@ function segment(text: string, style?: RenderSegmentStyle): RenderSegment {
 function wrapSegments(segments: RenderSegment[], width: number, wrap: boolean): RenderLine[] {
   const lines: RenderLine[] = [];
   let current: RenderLine = [];
+
+  if (!wrap) {
+    for (const source of segments) {
+      const pieces = source.text.split('\n');
+      pieces.forEach((piece, index) => {
+        if (piece) current.push(segment(piece, source.style));
+        if (index < pieces.length - 1) {
+          lines.push(current);
+          current = [];
+        }
+      });
+    }
+    if (current.length > 0 || lines.length === 0) lines.push(current);
+    return lines;
+  }
+
   let currentWidth = 0;
 
   const pushCurrent = () => {
@@ -519,11 +546,6 @@ function wrapSegments(segments: RenderSegment[], width: number, wrap: boolean): 
         }
         if (wrap && currentWidth > 0 && currentWidth + tokenWidth > width) {
           pushCurrent();
-        }
-        if (!wrap && currentWidth + tokenWidth > width) {
-          current.push(source);
-          currentWidth += tokenWidth;
-          continue;
         }
         if (tokenWidth > width && wrap) {
           const graphemeParts = graphemes(token);

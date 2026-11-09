@@ -41,6 +41,7 @@ export interface LoadResult {
   text: string;
   displayName: string;
   warning?: string;
+  /** Source bytes admitted before sanitization; excludes the truncation lookahead. */
   bytesRead: number;
 }
 

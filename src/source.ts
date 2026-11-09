@@ -1,9 +1,10 @@
-import { createReadStream, existsSync } from 'node:fs';
-import { stat, readFile } from 'node:fs/promises';
-import { Readable } from 'node:stream';
+import { constants, existsSync } from 'node:fs';
+import { open } from 'node:fs/promises';
+import type { Readable } from 'node:stream';
 import path from 'node:path';
 import type { LoadResult, ResolvedSource } from './types.js';
-import { sanitizeMarkdownText } from './utils.js';
+import { readBoundedBytes } from './bounded-reader.js';
+import { VERSION } from './version.js';
 
 export function resolveSource(input: string | undefined): ResolvedSource {
   if (!input || input === '-') {
@@ -53,103 +54,124 @@ export async function sourceExists(source: ResolvedSource): Promise<boolean> {
 }
 
 async function readFromFile(filePath: string, maxInputBytes: number): Promise<LoadResult> {
-  const fileStats = await stat(filePath);
-  if (fileStats.size > maxInputBytes) {
-    const handle = createReadStream(filePath, { encoding: 'utf8', highWaterMark: Math.min(maxInputBytes, 64 * 1024) });
-    return readFromStream(handle, path.basename(filePath), maxInputBytes, `Input truncated to ${maxInputBytes} bytes`);
-  }
-
-  const text = sanitizeMarkdownText(await readFile(filePath, 'utf8'));
-  return {
-    text,
-    displayName: path.basename(filePath),
-    bytesRead: Buffer.byteLength(text, 'utf8'),
-  };
+  // Nonblocking open prevents a FIFO from hanging before its type can be checked.
+  // Checking the opened descriptor also avoids a path-stat/open replacement race.
+  const handle = await open(filePath, constants.O_RDONLY | constants.O_NONBLOCK);
+  return withCleanup(async () => {
+    if (!(await handle.stat()).isFile()) {
+      throw new Error(`Unsupported file type: ${filePath} (expected a regular file)`);
+    }
+    return await readBoundedBytes(async (maxBytes) => {
+      const buffer = Buffer.allocUnsafe(maxBytes);
+      const { bytesRead } = await handle.read(buffer, 0, maxBytes, null);
+      return bytesRead ? buffer.subarray(0, bytesRead) : undefined;
+    }, path.basename(filePath), maxInputBytes);
+  }, () => handle.close());
 }
 
 async function readFromStream(
   stream: NodeJS.ReadableStream | Readable,
   displayName: string,
   maxInputBytes: number,
-  warning?: string,
 ): Promise<LoadResult> {
-  const chunks: string[] = [];
-  let bytesRead = 0;
-
-  for await (const chunk of stream) {
-    const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-    bytesRead += Buffer.byteLength(text, 'utf8');
-    chunks.push(text);
-    if (bytesRead > maxInputBytes) {
-      break;
-    }
-  }
-
-  const raw = chunks.join('');
-  return {
-    text: sanitizeMarkdownText(raw.slice(0, maxInputBytes)),
-    displayName,
-    warning: warning ?? (bytesRead > maxInputBytes ? `Input truncated to ${maxInputBytes} bytes` : undefined),
-    bytesRead: Math.min(bytesRead, maxInputBytes),
-  };
+  const iterator = stream[Symbol.asyncIterator]();
+  return withCleanup(async () => {
+    return await readBoundedBytes(async () => {
+      const { done, value } = await iterator.next();
+      if (done) return undefined;
+      return typeof value === 'string' ? Buffer.from(value, 'utf8') : value;
+    }, displayName, maxInputBytes);
+  }, async () => {
+    // Node's iterator return destroys a stream on early completion and cleans up
+    // its listeners on EOF/error. There is only one cleanup owner per adapter.
+    await iterator.return?.();
+  });
 }
 
 async function readFromUrl(url: string, timeoutMs: number, maxInputBytes: number): Promise<LoadResult> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const timeout = setTimeout(() => controller.abort(new Error(`URL request timed out after ${timeoutMs} ms`)), timeoutMs);
+  let body: ReadableStream<Uint8Array> | null | undefined;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let consumed = false;
 
   try {
-    const response = await fetch(url, {
+    const response = await withAbort(fetch(url, {
       signal: controller.signal,
       redirect: 'follow',
       headers: {
-        'user-agent': 'mdview/0.1.0',
+        'user-agent': `mdview/${VERSION}`,
         accept: 'text/markdown,text/plain,text/*;q=0.9,*/*;q=0.1',
       },
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    }), controller.signal);
+    body = response.body;
+    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    if (!body) {
+      consumed = true;
+      return await readBoundedBytes(async () => undefined, url, maxInputBytes);
     }
-
-    if (!response.body) {
-      const text = sanitizeMarkdownText(await response.text());
-      return {
-        text: text.slice(0, maxInputBytes),
-        displayName: url,
-        bytesRead: Buffer.byteLength(text, 'utf8'),
-      };
-    }
-
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-
-    while (true) {
-      const { done, value } = await reader.read();
+    reader = body.getReader();
+    return await readBoundedBytes(async () => {
+      const { done, value } = await withAbort(reader!.read(), controller.signal);
       if (done) {
-        break;
+        consumed = true;
+        return undefined;
       }
-      if (!value) {
-        continue;
-      }
-      total += value.byteLength;
-      chunks.push(value);
-      if (total > maxInputBytes) {
-        break;
-      }
-    }
-
-    const buffer = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)).slice(0));
-    const text = sanitizeMarkdownText(buffer.toString('utf8').slice(0, maxInputBytes));
-    return {
-      text,
-      displayName: url,
-      warning: total > maxInputBytes ? `Input truncated to ${maxInputBytes} bytes` : undefined,
-      bytesRead: Math.min(total, maxInputBytes),
-    };
+      return value;
+    }, url, maxInputBytes);
   } finally {
-    clearTimeout(timeout);
+    if (!consumed) {
+      // Cancellation may throw, reject, or never settle. Observe rejection but
+      // never await it: abort is the network backstop and must start promptly.
+      try {
+        const cancellation = reader ? reader.cancel() : body?.cancel();
+        void cancellation?.catch(() => {});
+      } catch {
+        // Cleanup must preserve the primary read/HTTP error or truncated result.
+      }
+      controller.abort();
+    }
+    try {
+      reader?.releaseLock();
+    } catch {
+      // A faulty reader's cleanup must not replace the primary outcome either.
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+/** Also bounds custom readers whose pending read does not honor fetch's signal. */
+async function withAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  let onAbort: (() => void) | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        onAbort = () => reject(signal.reason);
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort, { once: true });
+      }),
+    ]);
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  }
+}
+
+/** Report close failures on success, while preserving the original read error. */
+async function withCleanup<T>(operation: () => Promise<T>, cleanup: () => Promise<unknown>): Promise<T> {
+  let failed = false;
+  try {
+    return await operation();
+  } catch (error) {
+    failed = true;
+    throw error;
+  } finally {
+    try {
+      await cleanup();
+    } catch (error) {
+      if (!failed) throw error;
+    }
   }
 }
 
