@@ -79,3 +79,19 @@ export function restoreReadingAnchor(document: RenderedDocument, anchor: Reading
   // Retain the logical point, not the new line start, to avoid drift on repeated resize.
   return { line, anchor: anchorAt(document, { block, offset }) }
 }
+
+export function parseReadingAnchor(value: unknown): ReadingAnchor {
+  if (!value || typeof value !== 'object') throw new Error('Invalid reading anchor')
+  const anchor = value as ReadingAnchor
+  const block = anchor.block
+  const fingerprint = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
+  if (anchor.version !== 1 || !block || !Number.isSafeInteger(block.start) || block.start < 0 ||
+      !Number.isSafeInteger(block.end) || block.end < block.start || typeof block.kind !== 'string' || !/^[a-zA-Z]{1,32}$/.test(block.kind) ||
+      !fingerprint(block.fingerprint) || !Array.isArray(block.headingPath) || block.headingPath.length > 6 || !block.headingPath.every(fingerprint) ||
+      !Number.isSafeInteger(anchor.offset) || anchor.offset < 0 || anchor.offset > block.end - block.start ||
+      (anchor.before !== undefined && !fingerprint(anchor.before)) || (anchor.after !== undefined && !fingerprint(anchor.after))) throw new Error('Invalid reading anchor')
+  return {
+    version: 1, offset: anchor.offset, before: anchor.before, after: anchor.after,
+    block: { start: block.start, end: block.end, kind: block.kind, fingerprint: block.fingerprint, headingPath: [...block.headingPath] },
+  }
+}
