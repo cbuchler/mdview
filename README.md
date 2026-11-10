@@ -1,16 +1,22 @@
 # mdview
 
-Read Markdown in your terminal. `mdview` reloads local files when you save them and adjusts the layout when you resize the window.
+Read Markdown in your terminal and return to where you left off.
 
-It supports GitHub-Flavored Markdown, including tables, task lists, and code blocks. You can read a file, fetch a URL, or pipe in text. Redirect output to get plain text.
+- Open a file, fetch an HTTP(S) URL, or read piped text.
+- Search recent documents and resume saved reading positions.
+- Reload local files on save and reflow content when the terminal resizes.
+- Read tables, task lists, and code blocks, or redirect output as plain text.
+
+[Install](#install) · [Quick start](#quick-start) · [Recent documents](#recent-documents) · [Configure](#configure) · [Options](#options)
 
 ## Install
 
 ### Linux binary
 
-Download `mdview-linux-x64.tar.gz` from [GitHub Releases](https://github.com/cbuchler/mdview/releases/latest). Extract it, then install the binary:
+Download `mdview-linux-x64.tar.gz` and `SHA256SUMS` from the same [GitHub release](https://github.com/cbuchler/mdview/releases/latest). Verify the archive, extract it, then install the binary:
 
 ```bash
+sha256sum -c SHA256SUMS
 tar -xzf mdview-linux-x64.tar.gz
 mkdir -p ~/.local/bin
 install -m 755 mdview ~/.local/bin/mdview
@@ -30,30 +36,53 @@ npm run build
 node dist/main.js README.md
 ```
 
-To build a standalone binary, install Bun and run:
+To build and try a standalone binary, install Bun and run from the repository:
 
 ```bash
 npm run package:binaries
+./release/mdview README.md
+```
+
+To install that binary:
+
+```bash
 npm run install:binary
 ```
 
 This installs `release/mdview` as `~/.local/bin/mdview`. Set `MDVIEW_INSTALL_DIR` to choose another directory.
 
-## Use
+## Quick start
 
 ```bash
 mdview README.md
+mdview
+mdview --history
 mdview README.md --theme dracula
 mdview https://example.com/readme.md
 cat README.md | mdview
-mdview - < README.md
+mdview README.md > README.txt
 ```
 
-Pass a file path or an HTTP(S) URL. With no argument and terminal input, `mdview` opens recent documents. Use `-`, or omit the argument when piping, to read stdin. An explicit file or URL takes precedence over piped input.
+Open a document, press `h` to search recent documents, then press `Enter` to reopen one at its saved position. Run `mdview` with no argument in a terminal to start in history.
+
+Use `--no-history` for an invocation that must not read or update history:
+
+```bash
+mdview --no-history private-notes.md
+```
+
+<details>
+<summary>Pipes, redirected output, and explicit stdin</summary>
+
+Use `-`, or omit the argument when piping, to read stdin. An explicit file or URL takes precedence over piped input. Redirecting output always produces plain text.
 
 The Node CLI opens piped input interactively when a controlling terminal is available for keyboard input. Otherwise, it prints plain text. Bun and compiled binaries print plain text whenever stdin is redirected, because Bun cannot safely close a separate terminal keyboard reader. Normal file and URL viewing with terminal stdin remains interactive in both runtimes. Running `mdview -` with terminal input reads until EOF (`Ctrl+D`), then prints plain text.
 
-### Keys
+</details>
+
+## Reading
+
+The reader has padded borders around its title/status bar and key hints. Small terminals use compact bars to leave room for content.
 
 | Key | Action |
 | --- | --- |
@@ -64,29 +93,45 @@ The Node CLI opens piped input interactively when a controlling terminal is avai
 | `g` / `G` | Go to the top / bottom |
 | `h` | Open recent documents |
 
-### Recent documents
+## Recent documents
 
 Run `mdview` or `mdview --history` in a terminal to search recent documents. Press `h` in the reader to open the same picker. Type to filter titles and locations by matching characters in order, including Unicode text. Entries remain in most-recent-first order.
 
-The reader has bordered headers and footers with inner padding. Small terminals use compact bars to leave room for content. History uses a one-row header and footer, with a search prompt above the list. The footer shows your position in the results. Dates appear beside titles when the terminal is wide enough.
+History has a one-row header and footer, with a search prompt above the list. Each entry shows its title and location. Dates appear beside titles when space permits, and the footer shows your position in the results.
 
 Press `Tab` for help with secondary actions. Press `Tab` or `Escape` to return to the list with your search and selection preserved. Clearing history opens a separate confirmation view.
 
 | Picker key | Action |
 | --- | --- |
-| Up / down arrow or `Ctrl+P` / `Ctrl+N` | Select an entry |
+| Up / down arrow | Select an entry |
 | `Page Up` / `Page Down` | Move through results one page at a time |
 | `Enter` | Open the selected document and resume reading |
 | `Tab` | Show or hide help |
-| `Escape` | Return to the current document, or exit from the home screen |
+| `Escape` | Close help or confirmation; from the list, return to the reader or quit |
 | `Backspace` | Remove the last query character |
-| `Ctrl+D` | Remove the selected history entry |
-| `Ctrl+X`, then `y` | Clear all history; another key cancels |
 | `Ctrl+C` | Quit |
 
-All printable keys, including `q`, `h`, `j`, and `k`, enter the query while the list is visible. The picker shows the title, location, last successful open date, and missing local files. Missing entries remain until removed. Opening a missing file reports the read error; `h` returns to history. URLs are never fetched just to draw the list.
+All printable keys, including `q`, `h`, `j`, and `k`, enter the query while the list is visible. Missing files are marked and remain in the list until removed. URLs are not fetched just to draw the list.
 
-History retains up to 200 successful file/URL opens in `$XDG_STATE_HOME/mdview/history.sqlite3`, or `~/.local/state/mdview/history.sqlite3` when that variable is unset or not absolute. SQLite transactions handle concurrent sessions. The directory is private (0700), and the database uses mode 0600. It stores location, title, time, and a reading anchor; it does not cache document bodies. This is local plaintext metadata, not encrypted storage.
+<details>
+<summary>Secondary controls and history maintenance</summary>
+
+Press `Tab` in history to reveal secondary controls. They also work directly from the list.
+
+| Key | Action |
+| --- | --- |
+| `Ctrl+P` / `Ctrl+N` | Select the previous / next entry |
+| `Ctrl+D` | Remove the selected history entry |
+| `Ctrl+X`, then `y` | Clear all history and saved positions; another key cancels |
+
+Removing an entry or clearing history does not delete your files. Opening a missing file reports the read error; press `h` to return to history.
+
+</details>
+
+<details>
+<summary>Storage, privacy, and recovery</summary>
+
+History retains up to 200 distinct file or URL entries. It uses `$XDG_STATE_HOME/mdview/history.sqlite3`, or `~/.local/state/mdview/history.sqlite3` when that variable is unset or not absolute. SQLite transactions handle concurrent sessions. The directory is private (0700), and the database uses mode 0600. It stores location, title, time, and reading position; it does not cache document bodies. This metadata is not encrypted.
 
 Stdin and failed opens are excluded. URLs with credentials, any query, or a fragment are also excluded, with a notice. This conservative rule can omit harmless URLs. `--no-history` disables all history reads and writes for that invocation. `--history` cannot be combined with an input or `--no-history`, and requires terminal input and output.
 
@@ -94,25 +139,45 @@ Successful redirected file/URL output updates recency while keeping any saved re
 
 History errors do not prevent reading. A busy database is retried briefly without blocking keyboard input. Corrupt or unsafe storage is left intact. To recover it, close all mdview sessions, move the mdview state directory aside, and restart. Do not replace a live database while another session is using it.
 
-### Reloading and resizing
+</details>
+
+## Reloading and resizing
 
 Local files reload on save. Use `--no-watch` to turn this off. `--refresh 150ms` sets the delay used to group file changes; it does not poll URLs. URLs and stdin are read once. Redirected output is also written once.
 
 Resizing the terminal rewraps the text, code blocks, and table cells. If a table cannot fit, each row becomes a list of header/value pairs.
 
-While you scroll, mdview remembers the source passage at the top of the view. Resize and reload keep that passage visible when it survives the edit. Repeated resizes keep the same logical point. Scrolling during a pending render sets the new reading position.
-
-If the passage is removed, mdview tries the following block, then the preceding block, then the nearest source position. Edited passages and identical repeated sections use best-effort matching. The view stays within the document bounds. This does not follow new content at the end. History saves the reading position for eligible documents unless `--no-history` is set.
+While you scroll, mdview remembers the passage at the top of the view. Resize and reload keep that passage visible when it survives the edit. History saves the position for eligible documents unless `--no-history` is set.
 
 Long lines wrap by default. `--no-wrap` leaves prose unwrapped and clips it to the terminal width. Code blocks and tables still wrap.
 
-URLs have a timeout and an input size limit. `mdview` removes terminal control sequences from input and skips embedded HTML. Markdown nesting is limited to 128 AST child levels, including structural and inline nodes (root = 0). Character widths can vary with your terminal and font.
+<details>
+<summary>How reading positions survive edits</summary>
+
+Repeated resizes keep the same logical point. Scrolling during a pending render sets the new reading position.
+
+If the passage is removed, mdview tries the following block, then the preceding block, then the nearest source position. Edited passages and identical repeated sections use best-effort matching. The view stays within the document bounds. This does not follow new content at the end.
+
+</details>
+
+## Limits and failure recovery
+
+Input defaults to a 2 MiB limit and an 8-second URL timeout. Invalid or timed-out reloads keep the last valid document visible. Character widths can vary with your terminal and font.
+
+Markdown rendering runs in a separate process with a deadline, but it has no hard OS memory limit. Large or complex input can exhaust available memory. Hard memory enforcement remains open in [issue #24](https://github.com/cbuchler/mdview/issues/24).
+
+<details>
+<summary>Render deadlines, input handling, and output limits</summary>
+
+`mdview` removes terminal control sequences from input and skips embedded HTML. Markdown nesting is limited to 128 AST child levels, including structural and inline nodes (root = 0).
 
 Markdown parsing and layout run in one child process in both interactive and plain output. Each render has a 5-second wall-clock deadline, including child startup and response transfer. This deadline is separate from the URL timeout. A resize reuses the child's latest parsed document. A new request cancels unfinished work. Quit and catchable termination signals stop the child; normal CLI shutdown waits for its exit. An invalid or timed-out reload keeps the last valid title and content. Resize can reflow that content while the error remains visible.
 
 Each result is limited to 16 MiB of protocol data, 8 MiB of decoded text, 50,000 lines, 50,000 source blocks, and 100,000 styled segments. Titles and error messages are limited to 4 KiB; child diagnostics are limited to 8 KiB. These fixed output limits also apply when `maxInputBytes` is increased. Source text travels as bounded UTF-8 bytes, without a JSON copy. Protocol records are checked before display. These limits bound communication and retained output; they do not bound parser memory.
 
-The child has no hard OS memory limit. It can exhaust available memory before the deadline. Hard memory enforcement remains open in [issue #24](https://github.com/cbuchler/mdview/issues/24). If the parent receives an uncatchable termination such as `SIGKILL`, a busy child can continue until it finishes its synchronous work or fails. Idle children exit when their input pipe closes. No systemd service or native launcher is required.
+If the parent receives an uncatchable termination such as `SIGKILL`, a busy child can continue until it finishes its synchronous work or fails. Idle children exit when their input pipe closes. No systemd service or native launcher is required.
+
+</details>
 
 ## Options
 
@@ -125,7 +190,7 @@ Run `mdview --help` for help.
 | `--refresh <duration>` | Set the file reload delay, such as `150ms` |
 | `--timeout <duration>` | Set the URL timeout, such as `8s` |
 | `--max-bytes <size>` | Limit input size, such as `1mb` |
-| `--padding <number>` | Set left and right padding |
+| `--padding <number>` | Set left and right document padding |
 | `--wrap[=<boolean>]` / `--no-wrap` | Turn prose wrapping on or off |
 | `--watch` / `--no-watch` | Turn file reloads on or off |
 | `--history` | Open recent documents in a terminal |
@@ -156,7 +221,7 @@ syntaxTheme: dracula
 # Wrap prose.
 wrap: true
 
-# Left and right padding, in terminal columns.
+# Left and right document padding, in terminal columns.
 padding: 1
 
 # Delay used to group file changes, in milliseconds.
@@ -225,8 +290,11 @@ Use Node.js 22.13 or newer. The Linux terminal tests also require Python 3; they
 npm ci
 npm run dev -- README.md
 npm test
+npx tsc --noEmit
 npm run build
 ```
+
+See [TESTING.md](TESTING.md) for validation guidance and [AGENTS.md](AGENTS.md) for project conventions. Report bugs and feature requests in [GitHub Issues](https://github.com/cbuchler/mdview/issues). See the [changelog](CHANGELOG.md) for release history.
 
 ## License
 
