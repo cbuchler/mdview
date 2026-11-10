@@ -1,17 +1,22 @@
+import { createHash } from 'node:crypto'
 import { unified } from 'unified';
 import type { Nodes, Root, Table } from 'mdast'
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 import { stripControlChars, graphemes, repeatSpace, splitWords, widthOf } from './utils.js';
-import type { RenderLine, RenderedDocument, RenderSegment, RenderSegmentStyle } from './types.js';
+import type { RenderLine, RenderedDocument, RenderSegment, RenderSegmentStyle, SourceBlock } from './types.js'
 import type { Theme } from './theme.js';
 import { markdownDepthError, validateMarkdownDepth } from './markdown-depth.js';
+
+// Keep layout provenance out of styled segments sent to the terminal.
+const sourceOffsets = new WeakMap<RenderSegment, number>()
 
 const inlineParser = unified().use(remarkParse).use(remarkGfm);
 // Resize changes layout, not source. Retain only the latest validated tree.
 let lastParsed: {
   markdown: string
   tree: Root
+  blocks: SourceBlock[]
 } | undefined
 
 export function renderMarkdownDocument(
@@ -40,7 +45,18 @@ export function renderMarkdownDocument(
       throw error
     }
     validateMarkdownDepth(tree)
-    lastParsed = { markdown, tree }
+    const headingPath: string[] = []
+    const blocks = tree.children.map((node) => {
+      const start = node.position?.start.offset ?? 0
+      const end = node.position?.end.offset ?? start
+      const fingerprint = createHash('sha256').update(markdown.slice(start, end)).digest('hex')
+      if (node.type === 'heading') {
+        headingPath.length = node.depth - 1
+        headingPath[node.depth - 1] = fingerprint
+      }
+      return { start, end, kind: node.type, fingerprint, headingPath: headingPath.filter(Boolean) }
+    })
+    lastParsed = { markdown, tree, blocks }
   }
   const title = inferTitle(tree, options.sourceName)
   const body = renderBlocks(tree.children ?? [], {
@@ -50,11 +66,29 @@ export function renderMarkdownDocument(
     padding: options.padding,
     syntaxTheme: options.syntaxTheme,
     listDepth: 0,
+    markdown,
   })
 
   const lines = body.length === 0 ? [[segment('No markdown content found.', { color: options.theme.muted })]] : body
+  const blocks = lastParsed.blocks
+  const lineSources = lines.map((line) => {
+    const offset = line.map((part) => sourceOffsets.get(part)).find((value) => value !== undefined)
+    if (offset === undefined) return undefined
+    let low = 0
+    let high = blocks.length
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2)
+      if (blocks[mid].start <= offset) low = mid + 1
+      else high = mid
+    }
+    const block = low - 1
+    if (block < 0 || offset > blocks[block].end) return undefined
+    return { block, offset: offset - blocks[block].start }
+  })
   return {
     title,
+    blocks,
+    lineSources,
     lines,
     parseMs: performance.now() - started,
     lineCount: lines.length,
@@ -72,6 +106,7 @@ function renderBlocks(
     padding: number
     syntaxTheme: Theme
     listDepth: number
+    markdown: string
   },
 ): RenderLine[] {
   const lines: RenderLine[] = []
@@ -143,8 +178,21 @@ function renderBlocks(
         }
         lines.push([segment(`┌${headerLabel}${'─'.repeat(headerWidth - widthOf(headerLabel))}`, { color: fenceColor, bold: true })])
         const rawLines = String(node.value ?? '').split('\n')
+        let cursor = node.position?.start.offset ?? 0
+        if (/^(?:`{3,}|~{3,})/.test(context.markdown.slice(cursor))) {
+          cursor = context.markdown.indexOf('\n', cursor) + 1
+        }
         for (const rawLine of rawLines) {
           const highlighted = highlightCodeLine(stripControlChars(rawLine), lang, context.syntaxTheme, baseCodeStyle)
+          const newline = context.markdown.indexOf('\n', cursor)
+          const end = newline < 0 ? context.markdown.length : newline
+          const found = context.markdown.slice(cursor, end).indexOf(rawLine)
+          let offset = cursor + Math.max(0, found)
+          for (const part of highlighted) {
+            sourceOffsets.set(part, offset)
+            offset += part.text.length
+          }
+          cursor = newline < 0 ? end : newline + 1
           const wrapped = wrapSegments(highlighted.length > 0 ? highlighted : [segment('', baseCodeStyle)], Math.max(1, context.width - 2), true)
           for (const piece of wrapped.length > 0 ? wrapped : [[]]) {
             lines.push([
@@ -207,7 +255,7 @@ function renderTable(node: Table, context: { width: number; theme: Theme; wrap: 
         const label = rows[0][column] ?? []
         stacked.push(...wrapSegments([
           ...(rows.length > 1 ? [
-            ...(plainText(label) ? label : [segment(`Column ${column + 1}`, headingStyle)]),
+            ...(plainText(label) ? label.map((part) => segment(part.text, part.style)) : [segment(`Column ${column + 1}`, headingStyle)]),
             segment(': ', headingStyle),
           ] : []),
           ...(row[column] ?? []),
@@ -263,7 +311,7 @@ function renderInline(nodes: Nodes[], inheritedStyle: RenderSegmentStyle | undef
   for (const node of nodes) {
     switch (node.type) {
       case 'text':
-        segments.push(segment(node.value ?? '', inheritedStyle))
+        segments.push(segment(node.value ?? '', inheritedStyle, node.position?.start.offset))
         break
       case 'strong':
         segments.push(...renderInline(node.children ?? [], { ...inheritedStyle, bold: true }, theme))
@@ -275,7 +323,7 @@ function renderInline(nodes: Nodes[], inheritedStyle: RenderSegmentStyle | undef
         segments.push(segment(node.value ?? '', {
           color: theme.codeForeground,
           backgroundColor: theme.codeBackground,
-        }))
+        }, node.position?.start.offset))
         break
       case 'link':
         segments.push(...renderInline(node.children ?? [], { ...inheritedStyle, color: theme.link, underline: true }, theme))
@@ -284,7 +332,7 @@ function renderInline(nodes: Nodes[], inheritedStyle: RenderSegmentStyle | undef
         segments.push(...renderInline(node.children ?? [], { ...inheritedStyle, dimColor: true }, theme))
         break
       case 'break':
-        segments.push(segment('\n', inheritedStyle))
+        segments.push(segment('\n', inheritedStyle, node.position?.start.offset))
         break
       case 'html':
         break
@@ -501,91 +549,55 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function segment(text: string, style?: RenderSegmentStyle): RenderSegment {
-  return {
-    text,
-    style,
-  };
+function segment(text: string, style?: RenderSegmentStyle, offset?: number): RenderSegment {
+  const result = { text, style }
+  if (offset !== undefined) sourceOffsets.set(result, offset)
+  return result
 }
 
 function wrapSegments(segments: RenderSegment[], width: number, wrap: boolean): RenderLine[] {
-  const lines: RenderLine[] = [];
-  let current: RenderLine = [];
-
-  if (!wrap) {
-    for (const source of segments) {
-      const pieces = source.text.split('\n');
-      pieces.forEach((piece, index) => {
-        if (piece) current.push(segment(piece, source.style));
-        if (index < pieces.length - 1) {
-          lines.push(current);
-          current = [];
-        }
-      });
-    }
-    if (current.length > 0 || lines.length === 0) lines.push(current);
-    return lines;
-  }
-
-  let currentWidth = 0;
-
+  const lines: RenderLine[] = []
+  let current: RenderLine = []
+  let currentWidth = 0
   const pushCurrent = () => {
-    lines.push(current);
-    current = [];
-    currentWidth = 0;
-  };
-
+    lines.push(current)
+    current = []
+    currentWidth = 0
+  }
   for (const source of segments) {
-    const pieces = source.text.split('\n');
+    let offset = sourceOffsets.get(source)
+    const append = (text: string) => {
+      current.push(segment(text, source.style, offset))
+      currentWidth += widthOf(text)
+      if (offset !== undefined) offset += text.length
+    }
+    const pieces = source.text.split('\n')
     pieces.forEach((piece, index) => {
-      const tokens = splitWords(piece);
-      if (tokens.length === 0) {
-        if (index < pieces.length - 1) {
-          pushCurrent();
-        }
-        return;
-      }
-      for (const token of tokens) {
-        const tokenWidth = widthOf(token);
-        if (token === '\n') {
-          pushCurrent();
-          continue;
-        }
-        if (wrap && currentWidth > 0 && currentWidth + tokenWidth > width) {
-          pushCurrent();
-        }
-        if (tokenWidth > width && wrap) {
-          const graphemeParts = graphemes(token);
-          let buffer = '';
-          for (const part of graphemeParts) {
+      for (const token of wrap ? splitWords(piece) : [piece]) {
+        if (!token) continue
+        const tokenWidth = widthOf(token)
+        if (wrap && currentWidth > 0 && currentWidth + tokenWidth > width) pushCurrent()
+        if (wrap && tokenWidth > width) {
+          let buffer = ''
+          for (const part of graphemes(token)) {
             if (widthOf(buffer + part) > width && buffer) {
-              current.push(segment(buffer, source.style));
-              pushCurrent();
-              buffer = part;
-            } else {
-              buffer += part;
+              append(buffer)
+              pushCurrent()
+              buffer = ''
             }
+            buffer += part
           }
-          if (buffer) {
-            current.push(segment(buffer, source.style));
-            currentWidth += widthOf(buffer);
-          }
-          continue;
-        }
-        current.push(segment(token, source.style));
-        currentWidth += tokenWidth;
+          if (buffer) append(buffer)
+        } else append(token)
       }
       if (index < pieces.length - 1) {
-        pushCurrent();
+        pushCurrent()
+        if (offset !== undefined) offset++
       }
-    });
+    })
   }
-
-  if (current.length > 0 || lines.length === 0) {
-    lines.push(current);
-  }
-
-  return lines;
+  if (current.length > 0 || lines.length === 0) lines.push(current)
+  return lines
 }
 
 function plainText(segments: RenderSegment[]): string {

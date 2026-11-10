@@ -61,7 +61,30 @@ export interface RenderSegment {
 
 export type RenderLine = RenderSegment[];
 
+export interface SourceBlock {
+  start: number
+  end: number
+  kind: string
+  fingerprint: string
+  headingPath: string[]
+}
+
+export interface SourceLocation {
+  block: number
+  offset: number
+}
+
+export interface ReadingAnchor {
+  version: 1
+  block: SourceBlock
+  offset: number
+  before?: string
+  after?: string
+}
+
 export interface RenderedDocument {
+  blocks: SourceBlock[]
+  lineSources: (SourceLocation | undefined)[]
   title: string;
   lines: RenderLine[];
   parseMs: number;
