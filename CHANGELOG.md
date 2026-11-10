@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0 — 2026-11-10
+
+- Search recent documents from the home screen, `--history`, or `h` in the reader. Store up to 200 entries and saved reading positions in SQLite, with support for concurrent sessions. Use `--no-history` to disable storage for an invocation (#2).
+- Keep the current passage visible through terminal resize and file reload. Resume saved positions when reopening eligible documents (#1).
+- Add padded borders to reader bars. Give history one-row bars, page navigation, a position counter, and secondary actions under `Tab` help (#30).
+- Run Markdown parsing and layout in a child process with a deadline and bounded output. Reuse parsed documents on resize and keep the last valid content visible after a failed reload (#24).
+- Preserve inline link styles in Markdown tables (#22).
+- Cancel queued reloads when the file watcher is disposed.
+- Refresh installation, usage, history, and configuration guidance in the README (#32).
+
+The render child has no hard OS memory limit. Complex input can exhaust available memory before its deadline. Hard memory enforcement remains open in [issue #24](https://github.com/cbuchler/mdview/issues/24).
+
 ## 0.1.1 — 2026-11-09
 
 - Bound file, URL, and stdin reads by bytes, preserving complete UTF-8 characters and rejecting non-regular file inputs (#16).
