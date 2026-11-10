@@ -4,6 +4,8 @@ import os from 'node:os'
 import { stat } from 'node:fs/promises'
 import type { HistoryEntry, HistoryStore } from './history.js'
 import { graphemes, sanitizeDisplayText } from './utils.js'
+import { resolveTheme } from './theme.js'
+import type { ThemeName } from './types.js'
 
 export function filterHistory(entries: HistoryEntry[], query: string): HistoryEntry[] {
   const points = Array.from(query.normalize('NFKC').toLowerCase())
@@ -16,14 +18,16 @@ export function filterHistory(entries: HistoryEntry[], query: string): HistoryEn
   })
 }
 
-export function HistoryPicker({ store, onOpen, onClose, notice }: {
+export function HistoryPicker({ store, onOpen, onClose, notice, theme: themeName }: {
   store?: HistoryStore
   onOpen: (entry: HistoryEntry) => void
   onClose: () => void
   notice?: string
+  theme: ThemeName
 }): React.JSX.Element {
   const { stdout } = useStdout()
   const { exit } = useApp()
+  const theme = resolveTheme(themeName)
   const [size, setSize] = useState({ columns: stdout.columns || 80, rows: stdout.rows || 24 })
   const [entries, setEntries] = useState<HistoryEntry[]>([])
   const [unavailable, setUnavailable] = useState(new Set<string>())
@@ -98,22 +102,29 @@ export function HistoryPicker({ store, onOpen, onClose, notice }: {
       setSelected(0)
     }
   })
-  const pageSize = Math.max(1, Math.floor((size.rows - 5) / 2))
+  const framed = size.rows >= 11 && size.columns >= 10
+  const headerHeight = framed ? 5 : 3
+  const footerHeight = framed ? 4 : 2
+  const pageSize = Math.max(1, Math.floor((size.rows - headerHeight - footerHeight) / 2))
   const start = Math.floor(index / pageSize) * pageSize
   const message = confirm ? 'Clear all history? y confirms; any other key cancels.' : error ?? notice ??
     (!store ? 'History is disabled for this invocation.' : busy ? 'Loading history…' : entries.length === 0 ? 'No recent documents. Open one with mdview PATH or mdview URL.' : matches.length === 0 ? 'No matching documents.' : `${matches.length} recent documents`)
   const location = (entry: HistoryEntry) => entry.location.startsWith(os.homedir() + '/') ? '~' + entry.location.slice(os.homedir().length) : entry.location
   return <Box flexDirection="column" width={size.columns} height={size.rows} overflow="hidden">
-    <Text bold wrap="truncate-end">Recent documents</Text>
-    <Text wrap="truncate-end">Search: {query}</Text>
-    <Text color={error ? 'red' : undefined} wrap="truncate-end">{sanitizeDisplayText(message)}</Text>
+    <Box flexDirection="column" borderStyle={framed ? 'round' : undefined} borderColor={theme.border} paddingX={framed ? 1 : 0} height={headerHeight} flexShrink={0} overflow="hidden">
+      <Text color={theme.heading} bold wrap="truncate-end">Recent documents</Text>
+      <Text wrap="truncate-end">Search: {query}</Text>
+      <Text color={error ? theme.error : theme.muted} wrap="truncate-end">{sanitizeDisplayText(message)}</Text>
+    </Box>
     <Box flexDirection="column" flexGrow={1} overflow="hidden">
       {matches.slice(start, start + pageSize).map((entry, offset) => <Box key={entry.location} flexDirection="column" flexShrink={0}>
         <Text inverse={start + offset === index} wrap="truncate-end">{start + offset === index ? '› ' : '  '}{unavailable.has(entry.location) ? '[missing] ' : ''}{sanitizeDisplayText(entry.title || entry.location)}</Text>
         <Text dimColor wrap="truncate-middle">  {sanitizeDisplayText(location(entry))} · {new Date(entry.openedAt).toLocaleString()}</Text>
       </Box>)}
     </Box>
-    <Text wrap="truncate-end">↑/↓ select · Enter open · Esc back</Text>
-    <Text wrap="truncate-end">Ctrl+D remove · Ctrl+X clear · type to search</Text>
+    <Box flexDirection="column" borderStyle={framed ? 'round' : undefined} borderColor={theme.border} paddingX={framed ? 1 : 0} height={footerHeight} flexShrink={0} overflow="hidden">
+      <Text color={theme.muted} wrap="truncate-end">↑/↓ select · Enter open · Esc back</Text>
+      <Text color={theme.muted} wrap="truncate-end">Ctrl+D remove · Ctrl+X clear · type to search</Text>
+    </Box>
   </Box>
 }

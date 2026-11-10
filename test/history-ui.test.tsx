@@ -12,6 +12,7 @@ import { filterHistory } from '../src/history-picker.js'
 import { RenderSupervisor } from '../src/render-supervisor.js'
 import { DEFAULT_CONFIG } from '../src/config.js'
 import { resolveSource } from '../src/source.js'
+import { widthOf } from '../src/utils.js'
 
 it('filters Unicode titles and path subsequences while retaining recency order', () => {
   const entries = [
@@ -50,7 +51,7 @@ it('preserves the passage through history navigation and cancels abandoned URL r
     stdout: stdout as unknown as NodeJS.WriteStream, stdin: stdin as unknown as NodeJS.ReadStream,
     debug: true, patchConsole: false, exitOnCtrlC: false,
   })
-  const top = () => frame.split('\n')[1]?.trim()
+  const top = () => frame.split('\n')[3]?.trim()
   try {
     await vi.waitFor(() => expect(top()).toContain('Passage0'), { timeout: 3000 })
     for (let index = 0; index < 20; index++) { stdin.write('j'); await new Promise((resolve) => setTimeout(resolve, 5)) }
@@ -119,6 +120,31 @@ it('marks missing files, removes entries, and requires confirmation to clear his
   })
   try {
     await vi.waitFor(() => expect(frame).toContain('[missing] Missing'))
+    const lines = frame.split('\n')
+    expect(lines).toHaveLength(12)
+    for (const [start, end] of [[0, 4], [8, 11]]) {
+      expect(lines[start]).toBe('╭' + '─'.repeat(78) + '╮')
+      expect(lines[end]).toBe('╰' + '─'.repeat(78) + '╯')
+      for (const line of lines.slice(start + 1, end)) {
+        expect(line).toMatch(/^│ .* │$/u)
+        expect(widthOf(line)).toBe(80)
+      }
+    }
+    stdin.write('\u001b[B')
+    await vi.waitFor(() => expect(frame).toContain('› Remote'))
+    expect(frame).not.toContain('[missing] Missing')
+    stdout.rows = 8
+    stdout.emit('resize')
+    await vi.waitFor(() => {
+      expect(frame.split('\n')).toHaveLength(8)
+      expect(frame).not.toContain('╭')
+      expect(frame).toContain('› Remote')
+      expect(frame).toContain('Ctrl+D remove')
+    })
+    stdout.rows = 12
+    stdout.emit('resize')
+    stdin.write('\u001b[A')
+    await vi.waitFor(() => expect(frame).toContain('› [missing] Missing'))
     stdin.write('\r')
     await vi.waitFor(() => expect(frame).toContain('ENOENT'))
     expect(await history.read()).toHaveLength(2)

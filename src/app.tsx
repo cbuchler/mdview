@@ -48,9 +48,12 @@ export function App({ source, config, renderer: suppliedRenderer, active = true,
     return () => { stdout.off('resize', resize); };
   }, [stdout]);
   const padding = Math.min(config.padding, Math.max(0, Math.floor((columns - 4) / 2)));
+  const framed = rows >= 9 && columns >= 10
+  const barHeight = framed ? 3 : 1
+  const bodyHeight = Math.max(1, rows - 2 * barHeight)
   const [scrollOffset, setScrollOffset] = useState(0)
   const scroll = useRef(0)
-  const viewportHeight = useRef(rows - 2)
+  const viewportHeight = useRef(bodyHeight)
   const readingAnchor = useRef<ReadingAnchor | undefined>(initialAnchor)
   const callbacks = useRef({ onDocument, onPosition })
   callbacks.current = { onDocument, onPosition }
@@ -178,7 +181,7 @@ export function App({ source, config, renderer: suppliedRenderer, active = true,
   const isError = state.phase === 'error';
   const loadingMessage = state.phase === 'loading' ? state.message : undefined;
   const note = state.phase === 'error' ? state.error : loadingMessage ?? state.result?.warning ?? notice;
-  const contentHeight = Math.max(1, rows - 2 - (note ? 1 : 0));
+  const contentHeight = Math.max(1, bodyHeight - (note ? 1 : 0))
 
   viewportHeight.current = contentHeight
 
@@ -242,7 +245,7 @@ export function App({ source, config, renderer: suppliedRenderer, active = true,
 
   return (
     <Box flexDirection="column" width={columns} height={rows}>
-      <Box paddingX={padding} columnGap={1} justifyContent="space-between" height={1} flexShrink={0} overflow="hidden">
+      <Box borderStyle={framed ? 'round' : undefined} borderColor={theme.border} paddingX={framed ? 1 : padding} columnGap={1} justifyContent="space-between" height={barHeight} flexShrink={0} overflow="hidden">
         <Text color={theme.heading} bold wrap="truncate-end">
           {sanitizeDisplayText(title)}
         </Text>
@@ -250,7 +253,7 @@ export function App({ source, config, renderer: suppliedRenderer, active = true,
           {sanitizeDisplayText(`${source.displayName} · ${progress} · ${sourceStatus} · ${parseStatus}`)}
         </Text>
       </Box>
-      <Box flexDirection="column" height={Math.max(1, rows - 2)} flexShrink={0} paddingX={padding} overflow="hidden">
+      <Box flexDirection="column" height={bodyHeight} flexShrink={0} paddingX={padding} overflow="hidden">
         {note ? (
           <Box height={1} flexShrink={0}>
             <Text color={isError ? theme.error : theme.warning} bold wrap="truncate-end">
@@ -270,7 +273,7 @@ export function App({ source, config, renderer: suppliedRenderer, active = true,
           </Text>
         ))}
       </Box>
-      <Box paddingX={padding} height={1} flexShrink={0} overflow="hidden">
+      <Box borderStyle={framed ? 'round' : undefined} borderColor={theme.border} paddingX={framed ? 1 : padding} height={barHeight} flexShrink={0} overflow="hidden">
         <Text color={theme.muted} wrap="truncate-end">
           q quit{onHistory ? ' · h history' : ''} · j/k scroll · arrows · g top · G bottom · space page down · b page up
         </Text>

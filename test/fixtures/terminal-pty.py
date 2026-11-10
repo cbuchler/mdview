@@ -304,7 +304,7 @@ with tempfile.TemporaryDirectory(prefix="mdview-terminal-") as directory:
         ENV['XDG_STATE_HOME'] = str(pathlib.Path(directory) / ('history-' + pathlib.Path(runtime).name))
         history_document = "\n\n".join("Passage%d has enough words to wrap across several lines in a narrow terminal." % n for n in range(40))
         file.write_text(history_document, encoding="utf-8")
-        top = lambda frame: frame.splitlines()[1].strip() if len(frame.splitlines()) > 1 else ""
+        top = lambda frame: frame.splitlines()[3].strip() if len(frame.splitlines()) > 3 else ""
         session = Session([str(file)], config, terminal_stdin=True, runtime=runtime, history=True)
         try:
             session.wait(lambda frame: top(frame).startswith("Passage0 "))

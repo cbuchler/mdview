@@ -68,6 +68,8 @@ The Node CLI opens piped input interactively when a controlling terminal is avai
 
 Run `mdview` or `mdview --history` in a terminal to search recent documents. Press `h` in the reader to open the same picker. Type to filter titles and locations by matching characters in order, including Unicode text. Entries remain in most-recent-first order.
 
+The reader and history picker have bordered headers and footers with inner padding. Small terminals use compact bars to leave room for content.
+
 | Picker key | Action |
 | --- | --- |
 | Up / down arrow or `Ctrl+P` / `Ctrl+N` | Select an entry |

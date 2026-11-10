@@ -103,11 +103,12 @@ describe('no-wrap prose', () => {
       debug: true, patchConsole: false, exitOnCtrlC: false,
     });
     try {
-      await vi.waitFor(() => expect(frame).toContain('word word'));
+      await vi.waitFor(() => expect(frame).toContain('word word'), { timeout: 3000 })
       const rows = frame.split('\n');
       expect(rows).toHaveLength(8);
       expect(rows.every((line) => widthOf(line) <= 20)).toBe(true);
       expect(rows[7]).toContain('q quit');
+      expect(frame).not.toContain('╭')
       expect(frame).not.toContain('HIDDEN-END');
     } finally {
       app.unmount();
