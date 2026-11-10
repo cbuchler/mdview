@@ -97,7 +97,7 @@ The reader has padded borders around its title/status bar and key hints. Small t
 
 Run `mdview` or `mdview --history` in a terminal to search recent documents. Press `h` in the reader to open the same picker. Type to filter titles and locations by matching characters in order, including Unicode text. Entries remain in most-recent-first order.
 
-History has a one-row header and footer, with a search prompt above the list. Each entry shows its title and location. Dates appear beside titles when space permits, and the footer shows your position in the results.
+History has a padded, bordered header and footer. Each bar contains one text row; its top and bottom borders add two terminal rows. The search prompt sits below the header, above the list. Short or very narrow terminals use compact bars to leave room for content. Each entry shows its title and location. Dates appear beside titles when space permits, and the footer shows your position in the results.
 
 Press `Tab` for help with secondary actions. Press `Tab` or `Escape` to return to the list with your search and selection preserved. Clearing history opens a separate confirmation view.
 

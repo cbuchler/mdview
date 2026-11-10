@@ -122,9 +122,15 @@ it('marks missing files, removes entries, and requires confirmation to clear his
     await vi.waitFor(() => expect(frame).toContain('[missing] Missing'))
     const lines = frame.split('\n')
     expect(lines).toHaveLength(12)
-    expect(lines[0]).toContain('Recent documents · 2')
-    expect(lines[1]).toContain('Search: type to filter')
-    expect(lines[11]).toContain('Enter open · Tab help · Esc quit')
+    for (const start of [0, 9]) {
+      expect(lines[start]).toBe('╭' + '─'.repeat(78) + '╮')
+      expect(lines[start + 1]).toMatch(/^│ .* │$/u)
+      expect(widthOf(lines[start + 1])).toBe(80)
+      expect(lines[start + 2]).toBe('╰' + '─'.repeat(78) + '╯')
+    }
+    expect(lines[1]).toContain('Recent documents · 2')
+    expect(lines[3]).toContain('Search: type to filter')
+    expect(lines[10]).toContain('Enter open · Tab help · Esc quit')
     expect(lines.every((line) => widthOf(line) <= 80)).toBe(true)
     expect(frame).not.toContain('Ctrl+D')
     stdout.rows = 6

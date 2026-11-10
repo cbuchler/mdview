@@ -70,7 +70,9 @@ export function HistoryPicker({ store, onOpen, onClose, notice, theme: themeName
   const matches = filterHistory(entries, query)
   const index = Math.min(selected, Math.max(0, matches.length - 1))
   const message = error ?? notice ?? (!store ? 'History is disabled for this invocation.' : busy ? 'Loading history…' : undefined)
-  const pageSize = Math.max(1, Math.floor((size.rows - 3 - (message ? 1 : 0)) / 2))
+  const framed = size.rows >= 10 && size.columns >= 10
+  const barHeight = framed ? 3 : 1
+  const pageSize = Math.max(1, Math.floor((size.rows - 2 * barHeight - 1 - (message ? 1 : 0)) / 2))
   const mutate = (action: () => Promise<void>) => {
     setBusy(true)
     void action().then(() => {
@@ -123,7 +125,7 @@ export function HistoryPicker({ store, onOpen, onClose, notice, theme: themeName
   const hints = confirm ? 'y clear · any other key cancels' : help ? 'Tab or Esc back · Ctrl+C quit' :
     size.columns >= 65 ? `↑↓ select · Enter open · Tab help · Esc ${back}` : size.columns >= 40 ? 'Enter open · Tab help' : 'Enter · Tab help'
   return <Box flexDirection="column" width={size.columns} height={size.rows} overflow="hidden">
-    <Box paddingX={1} height={1} flexShrink={0} overflow="hidden">
+    <Box borderStyle={framed ? 'round' : undefined} borderColor={theme.border} paddingX={1} height={barHeight} flexShrink={0} overflow="hidden">
       <Text color={theme.heading} bold wrap="truncate-end">{confirm ? 'Clear history' : help ? 'History help' : `Recent documents · ${matches.length}`}</Text>
     </Box>
     <Box flexDirection="column" paddingX={1} flexGrow={1} overflow="hidden">
@@ -152,7 +154,7 @@ export function HistoryPicker({ store, onOpen, onClose, notice, theme: themeName
         </Box>)}
       </>}
     </Box>
-    <Box paddingX={1} columnGap={1} justifyContent="space-between" height={1} flexShrink={0} overflow="hidden">
+    <Box borderStyle={framed ? 'round' : undefined} borderColor={theme.border} paddingX={1} columnGap={1} justifyContent="space-between" height={barHeight} flexShrink={0} overflow="hidden">
       <Box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0}><Text color={theme.muted} wrap="truncate-end">{hints}</Text></Box>
       {!help && !confirm && matches.length ? <Box flexShrink={0}><Text color={theme.muted}>{index + 1}/{matches.length}</Text></Box> : null}
     </Box>
