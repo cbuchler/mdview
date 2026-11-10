@@ -185,10 +185,10 @@ function renderBlocks(
 }
 
 function renderTable(node: Table, context: { width: number; theme: Theme; wrap: boolean; padding: number; syntaxTheme: Theme }): RenderLine[] {
-  const rows: string[][] = []
-  for (const row of node.children ?? []) {
-    rows.push((row.children ?? []).map((cell) => plainText(renderInline(cell.children ?? [], undefined, context.theme))))
-  }
+  const headingStyle = { color: context.theme.heading, bold: true }
+  const rows = node.children.map((row, index) => row.children.map((cell) =>
+    renderInline(cell.children, index === 0 ? headingStyle : undefined, context.theme),
+  ))
 
   if (rows.length === 0) {
     return []
@@ -204,17 +204,20 @@ function renderTable(node: Table, context: { width: number; theme: Theme; wrap: 
     records.forEach((row, rowIndex) => {
       if (rowIndex > 0) stacked.push([])
       for (let column = 0; column < columnCount; column += 1) {
-        const label = rows.length > 1 ? `${rows[0][column] || `Column ${column + 1}`}: ` : ''
+        const label = rows[0][column] ?? []
         stacked.push(...wrapSegments([
-          segment(label, { color: context.theme.heading, bold: true }),
-          segment(row[column] ?? ''),
+          ...(rows.length > 1 ? [
+            ...(plainText(label) ? label : [segment(`Column ${column + 1}`, headingStyle)]),
+            segment(': ', headingStyle),
+          ] : []),
+          ...(row[column] ?? []),
         ], context.width, true))
       }
     })
     return stacked
   }
   const naturalWidths = new Array(columnCount).fill(0).map((_, column) =>
-    Math.max(3, ...rows.map((row) => widthOf(row[column] ?? ''))),
+    Math.max(3, ...rows.map((row) => widthOf(plainText(row[column] ?? [])))),
   )
 
   const widths = new Array<number>(columnCount).fill(3)
@@ -234,15 +237,15 @@ function renderTable(node: Table, context: { width: number; theme: Theme; wrap: 
   const separator = `├${widths.map((value) => '─'.repeat(value + 2)).join('┼')}┤`
   header.push([segment(`┌${widths.map((value) => '─'.repeat(value + 2)).join('┬')}┐`, { color: context.theme.border })])
   rows.forEach((row, rowIndex) => {
-    const wrappedCells = row.map((cell, column) => wrapPlainText(cell, widths[column] ?? 3))
+    const wrappedCells = row.map((cell, column) => wrapSegments(cell, widths[column] ?? 3, true))
     const rowHeight = Math.max(...wrappedCells.map((cellLines) => cellLines.length), 1)
     for (let lineIndex = 0; lineIndex < rowHeight; lineIndex += 1) {
       const line: RenderLine = [segment('│', { color: context.theme.border })]
       for (let column = 0; column < columnCount; column += 1) {
-        const cellLines = wrappedCells[column] ?? ['']
-        const value = cellLines[lineIndex] ?? ''
-        const padded = value + repeatSpace((widths[column] ?? 3) - widthOf(value))
-        line.push(segment(` ${padded} `, rowIndex === 0 ? { color: context.theme.heading, bold: true } : undefined))
+        const value = wrappedCells[column]?.[lineIndex] ?? []
+        const padding = repeatSpace((widths[column] ?? 3) - widthOf(plainText(value)))
+        const style = rowIndex === 0 ? headingStyle : undefined
+        line.push(segment(' ', style), ...value, segment(`${padding} `, style))
         line.push(segment('│', { color: context.theme.border }))
       }
       header.push(line)
@@ -582,58 +585,6 @@ function wrapSegments(segments: RenderSegment[], width: number, wrap: boolean): 
     lines.push(current);
   }
 
-  return lines;
-}
-
-function wrapPlainText(text: string, width: number): string[] {
-  const clean = stripControlChars(text);
-  if (width <= 0) {
-    return [clean];
-  }
-
-  const words = splitWords(clean);
-  const lines: string[] = [];
-  let current = '';
-  let currentWidth = 0;
-
-  const push = () => {
-    lines.push(current.trimEnd());
-    current = '';
-    currentWidth = 0;
-  };
-
-  for (const word of words) {
-    const wordWidth = widthOf(word);
-    if (word === '\n') {
-      push();
-      continue;
-    }
-    if (currentWidth > 0 && currentWidth + wordWidth > width) {
-      push();
-    }
-    if (wordWidth > width) {
-      const graphemeParts = graphemes(word);
-      let buffer = '';
-      for (const part of graphemeParts) {
-        if (widthOf(buffer + part) > width && buffer) {
-          lines.push(buffer);
-          buffer = part;
-        } else {
-          buffer += part;
-        }
-      }
-      if (buffer) {
-        lines.push(buffer);
-      }
-      continue;
-    }
-    current += word;
-    currentWidth += wordWidth;
-  }
-
-  if (current || lines.length === 0) {
-    lines.push(current.trimEnd());
-  }
   return lines;
 }
 

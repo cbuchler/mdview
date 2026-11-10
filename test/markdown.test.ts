@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { unified } from 'unified'
-import { renderMarkdownDocument } from '../src/markdown.js';
+import { renderDocumentAsPlainText, renderMarkdownDocument } from '../src/markdown.js'
 import { resolveTheme } from '../src/theme.js';
 import { widthOf } from '../src/utils.js';
 
@@ -41,6 +41,35 @@ describe('renderMarkdownDocument', () => {
     expect(lines.join('\n')).toContain('Fourth: four');
     expect(lines.every((line) => widthOf(line) <= 18)).toBe(true);
   });
+
+  it.each([80, 24, 12])('preserves table link and inline styles through layout at %i columns', (width) => {
+    const theme = resolveTheme('tempus-rift')
+    const options = { width, padding: 0, wrap: true, theme, syntaxTheme: theme, sourceName: 'links.md' }
+    const label = '開発👩‍💻éReference'
+    const paragraph = renderMarkdownDocument(`[${label}](guide.md)`, options)
+    const table = renderMarkdownDocument(`| [Guide](guide.md) | Note |\n|---|---|\n| [${label}](guide.md) **bold** *em* \`code\` | plain |`, options)
+    const linkedText = (document: typeof table) => document.lines.flat()
+      .filter(({ style }) => style?.underline && style.color === theme.link)
+      .map(({ text }) => text).join('')
+    expect(linkedText(paragraph)).toBe(label)
+    expect(linkedText(table)).toBe(`Guide${label}`)
+    const segments = table.lines.flat()
+    expect(segments.find(({ text }) => text === 'Guide')?.style?.bold).toBe(true)
+    expect(segments.filter(({ style }) => style?.bold).map(({ text }) => text).join('')).toContain('bold')
+    expect(segments.filter(({ style }) => style?.italic).map(({ text }) => text).join('')).toBe('em')
+    expect(segments.filter(({ style }) => style?.backgroundColor === theme.codeBackground).map(({ text }) => text).join('')).toBe('code')
+    expect(table.lines.every((line) => widthOf(line.map(({ text }) => text).join('')) <= width)).toBe(true)
+    expect(segments.some(({ text }) => text.includes('👩‍💻'))).toBe(true)
+    expect(segments.some(({ text }) => text.includes('é'))).toBe(true)
+    const plain = renderDocumentAsPlainText(table)
+    expect(plain).not.toContain('\u001b')
+    const firstCellText = width === 12 ? plain : plain.split('\n')
+      .filter((line) => line.startsWith('│')).map((line) => line.split('│')[1]).join('')
+    expect(firstCellText.replace(/\s/g, '')).toContain(label)
+    expect(plain).toContain('plain')
+    if (width === 12) expect(plain).not.toContain('┌')
+    else expect(plain).toContain('┌')
+  })
 
   it.each([20, 40, 80])('reflows nested code and long fence labels into %i columns', (width) => {
     const lines = renderLines('> ```averylonglanguagelabelthatexceedstheviewport\n> const message = "a long code line that needs wrapping in a narrow terminal";\n> ```', width);
