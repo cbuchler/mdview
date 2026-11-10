@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { expect, it, vi } from 'vitest'
+import { captureReadingAnchor, restoreReadingAnchor } from '../src/reading-anchor.js'
 import { RenderCancelledError, RenderSupervisor } from '../src/render-supervisor.js'
 import { DocumentReceiver, MAX_RENDER_LINES, MAX_RENDER_SEGMENTS, MAX_RENDER_TEXT_BYTES } from '../src/render-protocol.js'
 
@@ -19,6 +20,9 @@ it('renders and reflows in the real worker, and recovers after invalid Markdown'
     const wide = await renderer.render(markdown, options, maxBytes)
     const narrow = await renderer.render(markdown, { ...options, width: 20 }, maxBytes)
     expect(wide.title).toBe('Title')
+    const anchor = captureReadingAnchor(narrow, 10)!
+    const restored = restoreReadingAnchor(wide, anchor)
+    expect(restoreReadingAnchor(narrow, restored.anchor!).line).toBe(10)
     expect((await renderer.render('Safe body', { ...options, sourceName: 'file\u001b[31m\u009b.md' }, maxBytes)).title).toBe('file.md')
     expect(narrow.lines.length).toBeGreaterThan(wide.lines.length)
     await expect(renderer.render('> '.repeat(2000) + 'x', options, maxBytes)).rejects.toThrow('Markdown nesting exceeds')
@@ -84,6 +88,7 @@ it.each([
   ['malformed', 'encoded data'],
   ['controls', 'Invalid text'],
   ['style', 'Invalid render color'],
+  ['source', 'Invalid render source location'],
   ['exit', 'exited before completion'],
   ['trailing', 'Trailing partial'],
 ])('rejects %s worker output and reaps the child', async (mode, message) => {
@@ -122,4 +127,24 @@ it('reports worker startup failure without waiting for the render deadline', asy
   } finally {
     await renderer.dispose()
   }
+})
+
+it('rejects invalid source ranges, context, ordering, and offsets before anchor matching', () => {
+  const block = { start: 0, end: 10, kind: 'paragraph', fingerprint: 'a'.repeat(64), headingPath: [] }
+  const receiver = () => {
+    const result = new DocumentReceiver(20)
+    result.accept({ type: 'start', title: '', parseMs: 0 })
+    return result
+  }
+  for (const invalid of [{ start: -1 }, { end: 21 }, { start: 11 }, { fingerprint: 'text' }, { headingPath: Array(7).fill(block.fingerprint) }]) {
+    expect(() => receiver().accept({ type: 'block', block: { ...block, ...invalid } })).toThrow('source block')
+  }
+  const ranges = receiver()
+  ranges.accept({ type: 'block', block })
+  expect(() => ranges.accept({ type: 'block', block })).toThrow('source block')
+  for (const source of [{ block: 0, offset: -1 }, { block: 0, offset: 11 }, { block: 1, offset: 0 }]) {
+    expect(() => ranges.accept({ type: 'line', line: [], source })).toThrow('source location')
+  }
+  ranges.accept({ type: 'line', line: [], source: { block: 0, offset: 10 } })
+  expect(() => ranges.accept({ type: 'block', block: { ...block, start: 10 } })).toThrow('response order')
 })

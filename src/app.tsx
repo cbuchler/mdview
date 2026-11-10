@@ -1,6 +1,7 @@
+import { captureReadingAnchor, restoreReadingAnchor } from './reading-anchor.js'
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { AppConfig, LoadResult, ResolvedSource, RenderedDocument } from './types.js';
+import type { AppConfig, LoadResult, ResolvedSource, RenderedDocument, ReadingAnchor } from './types.js'
 import { clamp, sanitizeDisplayText } from './utils.js';
 import { resolveTheme } from './theme.js';
 import { loadSource } from './source.js';
@@ -41,7 +42,10 @@ export function App({ source, config, renderer: suppliedRenderer }: AppProps): R
     return () => { stdout.off('resize', resize); };
   }, [stdout]);
   const padding = Math.min(config.padding, Math.max(0, Math.floor((columns - 4) / 2)));
-  const [scrollOffset, setScrollOffset] = useState(0);
+  const [scrollOffset, setScrollOffset] = useState(0)
+  const scroll = useRef(0)
+  const viewportHeight = useRef(rows - 2)
+  const readingAnchor = useRef<ReadingAnchor | undefined>()
   const [state, setState] = useState<LoadState>({ phase: 'loading', message: `Loading ${source.displayName}...` });
   const activeRequest = useRef(0);
   const lastGood = useRef<RenderedSource | undefined>(undefined);
@@ -141,6 +145,11 @@ export function App({ source, config, renderer: suppliedRenderer }: AppProps): R
       sourceName: result.displayName,
     }, config.maxInputBytes).then((nextDocument) => {
       if (!mounted || renderRequest.current !== requestId) return
+      const anchor = readingAnchor.current
+      const restored = anchor ? restoreReadingAnchor(nextDocument, anchor) : { line: 0 }
+      readingAnchor.current = restored.anchor
+      scroll.current = clamp(restored.line, 0, Math.max(0, nextDocument.lines.length - viewportHeight.current))
+      setScrollOffset(scroll.current)
       lastGood.current = { result, document: nextDocument }
       setDocument(nextDocument)
     }).catch((error: unknown) => {
@@ -156,12 +165,21 @@ export function App({ source, config, renderer: suppliedRenderer }: AppProps): R
   const note = state.phase === 'error' ? state.error : loadingMessage ?? state.result?.warning;
   const contentHeight = Math.max(1, rows - 2 - (note ? 1 : 0));
 
+  viewportHeight.current = contentHeight
+
   const availableLines = document?.lines ?? [];
   const maxScroll = Math.max(0, availableLines.length - contentHeight);
 
   useEffect(() => {
-    setScrollOffset((offset) => Math.min(offset, maxScroll));
+    scroll.current = Math.min(scroll.current, maxScroll)
+    setScrollOffset(scroll.current)
   }, [maxScroll]);
+
+  const moveTo = (offset: number) => {
+    scroll.current = clamp(offset, 0, maxScroll)
+    readingAnchor.current = document && scroll.current > 0 ? captureReadingAnchor(document, scroll.current) : undefined
+    setScrollOffset(scroll.current)
+  }
 
   useInput((input: string, key: { ctrl?: boolean; downArrow?: boolean; upArrow?: boolean; pageDown?: boolean; pageUp?: boolean }) => {
     if (input === 'q' || (key.ctrl && input === 'c')) {
@@ -169,27 +187,27 @@ export function App({ source, config, renderer: suppliedRenderer }: AppProps): R
       return;
     }
     if (input === 'j' || key.downArrow) {
-      setScrollOffset((offset) => clamp(offset + 1, 0, maxScroll));
+      moveTo(scroll.current + 1)
       return;
     }
     if (input === 'k' || key.upArrow) {
-      setScrollOffset((offset) => clamp(offset - 1, 0, maxScroll));
+      moveTo(scroll.current - 1)
       return;
     }
     if (input === 'g') {
-      setScrollOffset(0);
+      moveTo(0)
       return;
     }
     if (input === 'G') {
-      setScrollOffset(maxScroll);
+      moveTo(maxScroll)
       return;
     }
     if (input === ' ' || key.pageDown) {
-      setScrollOffset((offset) => clamp(offset + contentHeight, 0, maxScroll));
+      moveTo(scroll.current + contentHeight)
       return;
     }
     if (input === 'b' || key.pageUp) {
-      setScrollOffset((offset) => clamp(offset - contentHeight, 0, maxScroll));
+      moveTo(scroll.current - contentHeight)
       return;
     }
   });

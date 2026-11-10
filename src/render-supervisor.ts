@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { DocumentReceiver, FrameReader, frame, record, displayString, decodeFrame, RENDER_TIMEOUT_MS, MAX_RENDER_HEADER_BYTES, MAX_RENDER_WIRE_BYTES, MAX_RENDER_LABEL_BYTES } from './render-protocol.js'
+import { RENDER_PROTOCOL_VERSION, DocumentReceiver, FrameReader, frame, record, displayString, decodeFrame, RENDER_TIMEOUT_MS, MAX_RENDER_HEADER_BYTES, MAX_RENDER_WIRE_BYTES, MAX_RENDER_LABEL_BYTES } from './render-protocol.js'
 import type { RenderOptions } from './render-protocol.js'
 import type { RenderedDocument } from './types.js'
 
@@ -55,15 +55,15 @@ export class RenderSupervisor {
     if (this.disposed || id !== this.generation) throw new RenderCancelledError()
     const input = Buffer.from(markdown || '\n')
     if (input.length > maxInputBytes && markdown !== '') throw new Error('Render input exceeds configured byte limit')
-    const metadata = Buffer.from(JSON.stringify({ version: 1, id, bytes: input.length, options }))
+    const metadata = Buffer.from(JSON.stringify({ version: RENDER_PROTOCOL_VERSION, id, bytes: input.length, options }))
     if (metadata.length > MAX_RENDER_HEADER_BYTES) throw new Error('Render request header exceeds byte limit')
     const worker = this.worker ?? this.start()
     return new Promise<RenderedDocument>((resolve, reject) => {
       const pending: Pending = {
-        id, worker, resolve, reject, bytes: 0, receiver: new DocumentReceiver(),
+        id, worker, resolve, reject, bytes: 0, receiver: new DocumentReceiver(markdown.length),
         reader: new FrameReader(() => MAX_RENDER_WIRE_BYTES, (body) => {
           const value = record(decodeFrame(body))
-          if (value.version !== 1 || value.id !== id) throw new Error('Invalid render response identity')
+          if (value.version !== RENDER_PROTOCOL_VERSION || value.id !== id) throw new Error('Invalid render response identity')
           if (value.type === 'error') throw new Error(displayString(value.message, MAX_RENDER_LABEL_BYTES))
           const document = pending.receiver.accept(value)
           if (document) pending.completed = document

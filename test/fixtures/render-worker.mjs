@@ -23,7 +23,7 @@ process.stdin.on('data', (chunk) => {
     }
     const id = metadata.id
     metadata = undefined
-    const response = (value) => frame({ version: 1, id, ...value })
+    const response = (value) => frame({ version: 2, id, ...value })
     if (body.toString() === 'busy') { while (true) {} }
     if (mode === 'oversized') {
       const header = Buffer.alloc(8)
@@ -37,6 +37,11 @@ process.stdin.on('data', (chunk) => {
       process.stdout.write(response({ type: 'start', title: '\u001b[31mUnsafe', parseMs: 1 }))
     } else if (mode === 'exit') {
       process.exit(2)
+    } else if (mode === 'source') {
+      process.stdout.write(Buffer.concat([
+        response({ type: 'start', title: 'Title', parseMs: 1 }),
+        response({ type: 'line', line: [{ text: 'Body' }], source: { block: 0, offset: 0 } }),
+      ]))
     } else if (mode === 'style') {
       process.stdout.write(Buffer.concat([
         response({ type: 'start', title: 'Title', parseMs: 1 }),

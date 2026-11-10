@@ -1,6 +1,7 @@
-import type { RenderedDocument, RenderLine } from './types.js'
+import type { RenderedDocument, RenderLine, SourceLocation } from './types.js'
 import { sanitizeDisplayText } from './utils.js'
 
+export const RENDER_PROTOCOL_VERSION = 2
 export const RENDER_TIMEOUT_MS = 5000
 export const MAX_RENDER_WIRE_BYTES = 16 * 1024 * 1024
 export const MAX_RENDER_TEXT_BYTES = 8 * 1024 * 1024
@@ -85,12 +86,28 @@ export class DocumentReceiver {
   private segments = 0
   private finished = false
 
+  constructor(private sourceLength = Number.MAX_SAFE_INTEGER) {}
+
   accept(value: Record<string, unknown>): RenderedDocument | undefined {
     if (this.finished) throw new Error('Unexpected render response after completion')
     if (value.type === 'start' && !this.document) {
       const title = displayString(value.title, MAX_RENDER_LABEL_BYTES)
       if (typeof value.parseMs !== 'number' || !Number.isFinite(value.parseMs) || value.parseMs < 0) throw new Error('Invalid render duration')
-      this.document = { title, parseMs: value.parseMs, lines: [], lineCount: 0 }
+      this.document = { title, parseMs: value.parseMs, lines: [], lineCount: 0, blocks: [], lineSources: [] }
+    } else if (value.type === 'block' && this.document && this.document.lines.length === 0) {
+      const block = record(value.block)
+      const fingerprint = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
+      if (this.document.blocks.length >= MAX_RENDER_LINES ||
+          !Number.isSafeInteger(block.start) || !Number.isSafeInteger(block.end) ||
+          (block.start as number) < (this.document.blocks.at(-1)?.end ?? 0) || (block.end as number) < (block.start as number) || (block.end as number) > this.sourceLength ||
+          typeof block.kind !== 'string' || !/^[a-zA-Z]{1,32}$/.test(block.kind) || !fingerprint(block.fingerprint) ||
+          !Array.isArray(block.headingPath) || block.headingPath.length > 6 || !block.headingPath.every(fingerprint)) {
+        throw new Error('Invalid render source block')
+      }
+      this.document.blocks.push({
+        start: block.start as number, end: block.end as number, kind: block.kind,
+        fingerprint: block.fingerprint, headingPath: block.headingPath as string[],
+      })
     } else if (value.type === 'line' && this.document) {
       if (!Array.isArray(value.line) || this.document.lines.length >= MAX_RENDER_LINES) throw new Error('Rendered output exceeds line limit')
       const line: RenderLine = []
@@ -112,6 +129,17 @@ export class DocumentReceiver {
         if (Object.keys(segment).some((key) => key !== 'text' && key !== 'style')) throw new Error('Invalid render segment')
         line.push({ text, style: segment.style as RenderLine[number]['style'] })
       }
+      let source: SourceLocation | undefined
+      if (value.source !== undefined) {
+        const location = record(value.source)
+        const block = this.document.blocks[location.block as number]
+        if (!Number.isSafeInteger(location.block) || !block || !Number.isSafeInteger(location.offset) ||
+            (location.offset as number) < 0 || (location.offset as number) > block.end - block.start) {
+          throw new Error('Invalid render source location')
+        }
+        source = { block: location.block as number, offset: location.offset as number }
+      }
+      this.document.lineSources.push(source)
       this.document.lines.push(line)
     } else if (value.type === 'end' && this.document) {
       this.finished = true
