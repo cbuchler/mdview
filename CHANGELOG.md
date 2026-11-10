@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 — 2026-11-10
+
+- Restore rounded, theme-coloured borders and inner padding around the history header and footer. Each bar contains one text row; its top and bottom borders add two terminal rows (#36).
+- Reserve the border rows when paging through history. Keep compact bars in very small terminals, with search, help, and confirmation in the body.
+- Clarify the history layout in the README.
+
 ## 0.2.0 — 2026-11-10
 
 - Search recent documents from the home screen, `--history`, or `h` in the reader. Store up to 200 entries and saved reading positions in SQLite, with support for concurrent sessions. Use `--no-history` to disable storage for an invocation (#2).
