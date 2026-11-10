@@ -18,7 +18,7 @@ _mdview_complete() {
 
   case "$cur" in
     -*)
-      COMPREPLY=( $(compgen -W "--theme --syntax-theme --refresh --refresh-interval --timeout --max-bytes --padding --wrap --no-wrap --watch --no-watch --config --print-config --init-config --help --version -h" -- "$cur") )
+      COMPREPLY=( $(compgen -W "--theme --syntax-theme --refresh --refresh-interval --timeout --max-bytes --padding --wrap --no-wrap --watch --no-watch --config --print-config --init-config --help --version --history --no-history -h" -- "$cur") )
       ;;
     *)
       COMPREPLY=( $(compgen -f -- "$cur") )

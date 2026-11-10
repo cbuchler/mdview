@@ -33,20 +33,21 @@ export function resolveSource(input: string | undefined): ResolvedSource {
   };
 }
 
-export async function loadSource(source: ResolvedSource, options: { timeoutMs: number; maxInputBytes: number }): Promise<LoadResult> {
+export async function loadSource(source: ResolvedSource, options: { timeoutMs: number; maxInputBytes: number; signal?: AbortSignal }): Promise<LoadResult> {
+  options.signal?.throwIfAborted()
   switch (source.kind) {
     case 'stdin':
-      return readFromStream(process.stdin, source.displayName, options.maxInputBytes);
+      return readFromStream(process.stdin, source.displayName, options.maxInputBytes, options.signal)
     case 'file':
-      return readFromFile(source.input, options.maxInputBytes);
+      return readFromFile(source.input, options.maxInputBytes, options.signal)
     case 'url':
-      return readFromUrl(source.input, options.timeoutMs, options.maxInputBytes);
+      return readFromUrl(source.input, options.timeoutMs, options.maxInputBytes, options.signal)
     default:
       return assertNever(source.kind);
   }
 }
 
-async function readFromFile(filePath: string, maxInputBytes: number): Promise<LoadResult> {
+async function readFromFile(filePath: string, maxInputBytes: number, signal?: AbortSignal): Promise<LoadResult> {
   // Nonblocking open prevents a FIFO from hanging before its type can be checked.
   // Checking the opened descriptor also avoids a path-stat/open replacement race.
   const handle = await open(filePath, constants.O_RDONLY | constants.O_NONBLOCK);
@@ -55,8 +56,10 @@ async function readFromFile(filePath: string, maxInputBytes: number): Promise<Lo
       throw new Error(`Unsupported file type: ${filePath} (expected a regular file)`);
     }
     return await readBoundedBytes(async (maxBytes) => {
+      signal?.throwIfAborted()
       const buffer = Buffer.allocUnsafe(maxBytes);
       const { bytesRead } = await handle.read(buffer, 0, maxBytes, null);
+      signal?.throwIfAborted()
       return bytesRead ? buffer.subarray(0, bytesRead) : undefined;
     }, path.basename(filePath), maxInputBytes);
   }, () => handle.close());
@@ -66,23 +69,30 @@ async function readFromStream(
   stream: NodeJS.ReadableStream | Readable,
   displayName: string,
   maxInputBytes: number,
+  signal?: AbortSignal,
 ): Promise<LoadResult> {
-  const iterator = stream[Symbol.asyncIterator]();
+  const iterator = stream[Symbol.asyncIterator]()
+  const abort = () => { (stream as Readable).destroy() }
+  signal?.addEventListener('abort', abort, { once: true })
   return withCleanup(async () => {
     return await readBoundedBytes(async () => {
-      const { done, value } = await iterator.next();
+      const { done, value } = await (signal ? withAbort(iterator.next(), signal) : iterator.next())
       if (done) return undefined;
       return typeof value === 'string' ? Buffer.from(value, 'utf8') : value;
     }, displayName, maxInputBytes);
   }, async () => {
     // Node's iterator return destroys a stream on early completion and cleans up
     // its listeners on EOF/error. There is only one cleanup owner per adapter.
+    signal?.removeEventListener('abort', abort)
     await iterator.return?.();
   });
 }
 
-async function readFromUrl(url: string, timeoutMs: number, maxInputBytes: number): Promise<LoadResult> {
-  const controller = new AbortController();
+async function readFromUrl(url: string, timeoutMs: number, maxInputBytes: number, signal?: AbortSignal): Promise<LoadResult> {
+  const controller = new AbortController()
+  const abort = () => controller.abort(signal?.reason)
+  signal?.addEventListener('abort', abort, { once: true })
+  if (signal?.aborted) abort()
   const timeout = setTimeout(() => controller.abort(new Error(`URL request timed out after ${timeoutMs} ms`)), timeoutMs);
   let body: ReadableStream<Uint8Array> | null | undefined;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
@@ -129,7 +139,8 @@ async function readFromUrl(url: string, timeoutMs: number, maxInputBytes: number
     } catch {
       // A faulty reader's cleanup must not replace the primary outcome either.
     } finally {
-      clearTimeout(timeout);
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', abort)
     }
   }
 }

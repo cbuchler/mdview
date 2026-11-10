@@ -20,7 +20,7 @@ Make sure `~/.local/bin` is on your `PATH`. The binary runs on Linux x86-64. For
 
 ### From source
 
-Use Node.js 22.12 or newer and npm to build from source:
+Use Node.js 22.13 or newer and npm to build from source:
 
 ```bash
 git clone https://github.com/cbuchler/mdview.git
@@ -49,7 +49,7 @@ cat README.md | mdview
 mdview - < README.md
 ```
 
-Pass a file path or an HTTP(S) URL. Use `-`, or omit the argument, to read stdin. An explicit file or URL takes precedence over piped input. With no argument and no piped input, `mdview` prints help.
+Pass a file path or an HTTP(S) URL. With no argument and terminal input, `mdview` opens recent documents. Use `-`, or omit the argument when piping, to read stdin. An explicit file or URL takes precedence over piped input.
 
 The Node CLI opens piped input interactively when a controlling terminal is available for keyboard input. Otherwise, it prints plain text. Bun and compiled binaries print plain text whenever stdin is redirected, because Bun cannot safely close a separate terminal keyboard reader. Normal file and URL viewing with terminal stdin remains interactive in both runtimes. Running `mdview -` with terminal input reads until EOF (`Ctrl+D`), then prints plain text.
 
@@ -62,6 +62,31 @@ The Node CLI opens piped input interactively when a controlling terminal is avai
 | `Space` or `Page Down` | Scroll down one page |
 | `b` or `Page Up` | Scroll up one page |
 | `g` / `G` | Go to the top / bottom |
+| `h` | Open recent documents |
+
+### Recent documents
+
+Run `mdview` or `mdview --history` in a terminal to search recent documents. Press `h` in the reader to open the same picker. Type to filter titles and locations by matching characters in order, including Unicode text. Entries remain in most-recent-first order.
+
+| Picker key | Action |
+| --- | --- |
+| Up / down arrow or `Ctrl+P` / `Ctrl+N` | Select an entry |
+| `Enter` | Open the selected document and resume reading |
+| `Escape` | Return to the current document, or exit from the home screen |
+| `Backspace` | Remove the last query character |
+| `Ctrl+D` | Remove the selected history entry |
+| `Ctrl+X`, then `y` | Clear all history; another key cancels |
+| `Ctrl+C` | Quit |
+
+All printable keys, including `q`, `h`, `j`, and `k`, enter the query. The picker shows the title, location, last successful open, and missing local files. Missing entries remain until removed. Opening a missing file reports the read error; `h` returns to history. URLs are never fetched just to draw the list.
+
+History retains up to 200 successful file/URL opens in `$XDG_STATE_HOME/mdview/history.sqlite3`, or `~/.local/state/mdview/history.sqlite3` when that variable is unset or not absolute. SQLite transactions handle concurrent sessions. The directory is private (0700), and the database uses mode 0600. It stores location, title, time, and a reading anchor; it does not cache document bodies. This is local plaintext metadata, not encrypted storage.
+
+Stdin and failed opens are excluded. URLs with credentials, any query, or a fragment are also excluded, with a notice. This conservative rule can omit harmless URLs. `--no-history` disables all history reads and writes for that invocation. `--history` cannot be combined with an input or `--no-history`, and requires terminal input and output.
+
+Successful redirected file/URL output updates recency while keeping any saved reading position. Normal reader exit flushes position changes; abrupt termination can lose the latest change. Edited or identical repeated passages retain the matching limits described below.
+
+History errors do not prevent reading. A busy database is retried briefly without blocking keyboard input. Corrupt or unsafe storage is left intact. To recover it, close all mdview sessions, move the mdview state directory aside, and restart. Do not replace a live database while another session is using it.
 
 ### Reloading and resizing
 
@@ -71,7 +96,7 @@ Resizing the terminal rewraps the text, code blocks, and table cells. If a table
 
 While you scroll, mdview remembers the source passage at the top of the view. Resize and reload keep that passage visible when it survives the edit. Repeated resizes keep the same logical point. Scrolling during a pending render sets the new reading position.
 
-If the passage is removed, mdview tries the following block, then the preceding block, then the nearest source position. Edited passages and identical repeated sections use best-effort matching. The view stays within the document bounds. This does not follow new content at the end or save your position after exit.
+If the passage is removed, mdview tries the following block, then the preceding block, then the nearest source position. Edited passages and identical repeated sections use best-effort matching. The view stays within the document bounds. This does not follow new content at the end. History saves the reading position for eligible documents unless `--no-history` is set.
 
 Long lines wrap by default. `--no-wrap` leaves prose unwrapped and clips it to the terminal width. Code blocks and tables still wrap.
 
@@ -97,6 +122,8 @@ Run `mdview --help` for help.
 | `--padding <number>` | Set left and right padding |
 | `--wrap[=<boolean>]` / `--no-wrap` | Turn prose wrapping on or off |
 | `--watch` / `--no-watch` | Turn file reloads on or off |
+| `--history` | Open recent documents in a terminal |
+| `--no-history` | Disable history reads and writes |
 | `--config <path>` | Use a config file |
 | `--print-config` | Print the config template |
 | `--init-config` | Create a config file without overwriting one |
@@ -186,7 +213,7 @@ cp /path/to/mdview/completions/fish/mdview.fish ~/.config/fish/completions/
 
 ## Develop
 
-Use Node.js 22.12 or newer. The Linux terminal tests also require Python 3; they check Bun behavior when Bun is installed. Shell completion tests use Bash and check Zsh and Fish when installed. Missing optional shells are reported as skipped tests.
+Use Node.js 22.13 or newer. The Linux terminal tests also require Python 3; they check Bun behavior when Bun is installed. Shell completion tests use Bash and check Zsh and Fish when installed. Missing optional shells are reported as skipped tests.
 
 ```bash
 npm ci

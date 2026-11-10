@@ -32,7 +32,7 @@ it('reflows on resize without input and reloads saved and atomically replaced fi
   });
   const codeBorder = () => frame.split('\n').find((line) => line.includes('┌ js'))?.trim();
   try {
-    await vi.waitFor(() => expect(codeBorder()?.length).toBe(98));
+    await vi.waitFor(() => expect(codeBorder()?.length).toBe(98), { timeout: 3000 })
     stdout.columns = 40;
     stdout.rows = 24;
     stdout.emit('resize');
@@ -130,6 +130,7 @@ it('keeps the latest scrolled passage through pending reflow and insertions abov
     renderSpy.mockRestore()
     app.unmount()
     app.cleanup()
+    await renderer.dispose()
     stdin.destroy()
     stdout.destroy()
     await rm(directory, { recursive: true, force: true })

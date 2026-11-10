@@ -61,6 +61,8 @@ describe('shell completions', () => {
       ], { encoding: 'utf8', timeout: 2000, maxBuffer: 16_384 }).trim().split('\n');
       expect(complete('READ')).toContain('README.md');
       expect(complete('--th')).toContain('--theme');
+      expect(complete('--hi')).toContain('--history')
+      expect(complete('--no-hi')).toContain('--no-history')
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

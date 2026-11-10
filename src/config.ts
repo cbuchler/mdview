@@ -50,6 +50,12 @@ export function parseCliArgs(argv: string[]): CliOptions {
       case '-h':
         options.help = true;
         break;
+      case '--history':
+        options.history = true
+        break
+      case '--no-history':
+        options.noHistory = true
+        break
       case '--version':
         options.version = true;
         break;
@@ -150,7 +156,8 @@ export function printHelp(): string {
     '  cat README.md | mdview',
     '',
     'Input detection:',
-    '  - omitted input or - reads stdin',
+    '  - omitted input opens history with terminal stdin; otherwise reads stdin',
+    '  - explicit - reads stdin',
     '  - an explicit file or URL takes precedence over piped data',
     '  - URL when the argument starts with http:// or https://',
     '  - file path otherwise',
@@ -170,6 +177,8 @@ export function printHelp(): string {
     '  --init-config',
     '  -h, --help',
     '  --version',
+    '  --history',
+    '  --no-history',
     '',
     'Config: ~/.config/mdview/config.yml',
     `Themes: ${listThemeNames().join(', ')}`,

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import React from 'react'
 import { initConfigFile, loadConfig, parseCliArgs, printConfigTemplate, printHelp } from './config.js'
-import { App } from './app.js'
+import { Navigation } from './navigation.js'
+import { HistoryStore, historyIdentity } from './history.js'
 import { resolveSource, loadSource } from './source.js'
 import { renderPlainText } from './plain.js'
 import { sanitizeDisplayText } from './utils.js'
@@ -33,17 +34,15 @@ async function main(): Promise<void> {
     return
   }
 
-  if (!cli.input && process.stdin.isTTY) {
-    process.stderr.write(`${printHelp()}\n`)
-    process.exitCode = 1
-    return
-  }
-
+  if (cli.history && (cli.input || cli.noHistory)) throw new Error('--history cannot be combined with an input or --no-history.')
+  const showHistory = Boolean(cli.history || (!cli.input && process.stdin.isTTY))
+  if (showHistory && (!process.stdin.isTTY || !process.stdout.isTTY)) throw new Error('--history needs terminal input and output.')
   const config = await loadConfig(cli)
-  const source = resolveSource(cli.input)
+  const source = showHistory ? undefined : resolveSource(cli.input)
+  const history = cli.noHistory ? undefined : new HistoryStore()
 
   // An explicit '-' with terminal stdin is canonical document input until EOF.
-  const keyboard = process.stdout.isTTY && !(source.kind === 'stdin' && process.stdin.isTTY)
+  const keyboard = process.stdout.isTTY && !(source?.kind === 'stdin' && process.stdin.isTTY)
     ? acquireKeyboardInput()
     : undefined
 
@@ -64,19 +63,27 @@ async function main(): Promise<void> {
   for (const { signal, handler } of signalHandlers) process.on(signal, handler)
   try {
     if (!keyboard) {
+      if (!source) throw new Error('History needs a usable terminal keyboard.')
       const result = await loadSource(source, {
         timeoutMs: config.timeoutMs,
         maxInputBytes: config.maxInputBytes,
       })
-      const plain = await renderPlainText(result.text, result.displayName, config, process.stdout.columns ?? 80, renderer)
+      let title = result.displayName
+      const plain = await renderPlainText(result.text, result.displayName, config, process.stdout.columns ?? 80, renderer, (document) => { title = document.title })
       process.stdout.write(`${plain}\n`)
       if (result.warning) process.stderr.write(`${sanitizeDisplayText(result.warning)}\n`)
+      if (history) {
+        try {
+          const identity = await historyIdentity(source)
+          if (identity) await history.remember({ ...identity, title, openedAt: Date.now() })
+        } catch (error) { process.stderr.write(`${formatCliError(error)}\n`) }
+      }
       return
     }
 
-    await runTerminalApp(React.createElement(App, { source, config, renderer }), keyboard, () => {
+    await runTerminalApp(React.createElement(Navigation, { source, config, renderer, history }), keyboard, () => {
       // Stop only our document read when q arrives before the producer reaches EOF.
-      if (source.kind === 'stdin' && !process.stdin.isTTY && !process.stdin.destroyed) {
+      if (source?.kind === 'stdin' && !process.stdin.isTTY && !process.stdin.destroyed) {
         process.stdin.destroy()
       }
     }, undefined, interruption.signal)
@@ -86,6 +93,7 @@ async function main(): Promise<void> {
   } finally {
     for (const { signal, handler } of signalHandlers) process.off(signal, handler)
     await renderer.dispose()
+    try { await history?.flush() } catch (error) { process.stderr.write(`${formatCliError(error)}\n`) }
   }
 }
 

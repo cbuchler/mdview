@@ -11,7 +11,7 @@ function runCli(args: string[], configPath: string, input: string, endInput = tr
   return new Promise<{ code: number; stdout: string; stderr: string }>((resolve, reject) => {
     const child = execFile(process.execPath, [
       '--max-old-space-size=96', '--import', 'tsx', path.join(repoRoot, 'src', 'main.ts'),
-      '--config', configPath, '--padding', '0', ...args,
+      '--no-history', '--config', configPath, '--padding', '0', ...args,
     ], {
       cwd: repoRoot, env: { ...process.env, NODE_NO_WARNINGS: '1' },
       encoding: 'utf8', timeout: 5000, maxBuffer: 100_000,

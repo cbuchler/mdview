@@ -26,6 +26,11 @@ describe('parseCliArgs', () => {
     expect(args.wrap).toBe(false);
   });
 
+  it('parses history entry and opt-out flags', () => {
+    expect(parseCliArgs(['--history'])).toEqual({ history: true })
+    expect(parseCliArgs(['--no-history', 'README.md'])).toEqual({ noHistory: true, input: 'README.md' })
+  })
+
   it('parses version', () => {
     const args = parseCliArgs(['--version']);
     expect(args.version).toBe(true);

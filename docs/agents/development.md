@@ -64,7 +64,7 @@ Bun builds standalone binaries. Read the relevant source and
 
 ## Development and validation
 
-Use Node.js 22.12 or newer and npm. Linux terminal tests require Python 3;
+Use Node.js 22.13 or newer and npm. Linux terminal tests require Python 3;
 some runtime checks also need Bun.
 
 | Command | Purpose |

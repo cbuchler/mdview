@@ -28,7 +28,7 @@ RESULTS = []
 
 
 class Session:
-    def __init__(self, args, config, controlling=True, terminal_stdin=False, input_file=None, fixture=None, runtime=NODE):
+    def __init__(self, args, config, controlling=True, terminal_stdin=False, input_file=None, fixture=None, runtime=NODE, history=False):
         self.master, self.slave = pty.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 14, 80, 0, 0))
         self.before = termios.tcgetattr(self.slave)
@@ -48,6 +48,7 @@ class Session:
                     os.close(fd)
                     raise RuntimeError("no-ctty fixture unexpectedly has /dev/tty")
 
+        args = args + ([] if history else ["--no-history"])
         if runtime == BINARY:
             command = [runtime, *args, "--config", str(config)]
         else:
@@ -137,6 +138,7 @@ class Session:
 
 
 with tempfile.TemporaryDirectory(prefix="mdview-terminal-") as directory:
+    ENV["XDG_STATE_HOME"] = str(pathlib.Path(directory) / "state")
     config = pathlib.Path(directory) / "missing.yml"
     file = pathlib.Path(directory) / "source.md"
     document = "# PIPE_TITLE\n\nq j G 界 🙂 LITERAL_DATA\n\n" + "\n\n".join("BODY_%02d" % n for n in range(40)) + "\n\nTAIL_MARKER\n"
@@ -298,6 +300,43 @@ with tempfile.TemporaryDirectory(prefix="mdview-terminal-") as directory:
     expensive = ("| cell " * 500 + "|\n") + ("|---" * 500 + "|\n") + ("| cell " * 500 + "|\n") * 300
     runtimes = [NODE] + ([shutil.which("bun")] if shutil.which("bun") else []) + ([BINARY] if BINARY else [])
     for runtime in runtimes:
+        previous_state = ENV['XDG_STATE_HOME']
+        ENV['XDG_STATE_HOME'] = str(pathlib.Path(directory) / ('history-' + pathlib.Path(runtime).name))
+        history_document = "\n\n".join("Passage%d has enough words to wrap across several lines in a narrow terminal." % n for n in range(40))
+        file.write_text(history_document, encoding="utf-8")
+        top = lambda frame: frame.splitlines()[1].strip() if len(frame.splitlines()) > 1 else ""
+        session = Session([str(file)], config, terminal_stdin=True, runtime=runtime, history=True)
+        try:
+            session.wait(lambda frame: top(frame).startswith("Passage0 "))
+            for _ in range(20):
+                previous_frame = session.frame()
+                session.key("j")
+                session.wait(lambda frame: frame != previous_frame and "q quit" in frame)
+            session.wait(lambda frame: top(frame).startswith("Passage10 "))
+            session.key("h")
+            session.wait(lambda frame: "Recent documents" in frame and "1 recent documents" in frame)
+            session.key("source")
+            session.wait(lambda frame: "Search: source" in frame)
+            session.key("\x1b")
+            session.wait(lambda frame: top(frame).startswith("Passage10 "))
+            session.key("q")
+            session.finish()
+        finally:
+            session.close()
+        session = Session(["--history"], config, terminal_stdin=True, runtime=runtime, history=True)
+        try:
+            session.resize(30)
+            session.wait(lambda frame: "Recent documents" in frame and "1 recent documents" in frame)
+            session.key("\r")
+            session.wait(lambda frame: top(frame).startswith("Passage10 ") and any(line.strip().endswith("a narrow terminal.") and len(line.strip()) < 30 for line in frame.splitlines()))
+            session.key("q")
+            session.finish()
+            RESULTS.append({"case": "history search/cancel/restart/resume " + pathlib.Path(runtime).name, "sqlite": True, "resumedPassage": 10, "rawRestored": True})
+        finally:
+            session.close()
+            ENV['XDG_STATE_HOME'] = previous_state
+
+    for runtime in runtimes:
         file.write_text("# LAST_GOOD\n\n" + "Safe content " * 20, encoding="utf-8")
         session = Session([str(file), "--refresh", "20ms"], config, terminal_stdin=True, runtime=runtime)
         try:
@@ -349,11 +388,12 @@ with tempfile.TemporaryDirectory(prefix="mdview-terminal-") as directory:
             session.close()
     file.write_text(document, encoding="utf-8")
 
-    session = Session([], config, terminal_stdin=True)
+    session = Session([], config, terminal_stdin=True, history=True)
     try:
-        session.wait(lambda frame: "Usage:" in frame)
-        session.finish(status=1)
-        RESULTS.append({"case": "no source with terminal stdin", "helpExit": 1})
+        session.wait(lambda frame: "Recent documents" in frame)
+        session.key("\x1b")
+        session.finish()
+        RESULTS.append({"case": "no source with terminal stdin", "history": True})
     finally:
         session.close()
 
@@ -367,7 +407,7 @@ with tempfile.TemporaryDirectory(prefix="mdview-terminal-") as directory:
 
     for args, expected in [([], "PIPE_TITLE"), ([str(file)], "PIPE_TITLE")]:
         result = subprocess.run(
-            [NODE, "--max-old-space-size=128", "--import", "tsx", "src/main.ts", *args, "--config", str(config)],
+            [NODE, "--max-old-space-size=128", "--import", "tsx", "src/main.ts", *args, "--no-history", "--config", str(config)],
             cwd=ROOT, env=ENV, input=document.encode() if not args else b"IGNORED_PIPE_DATA",
             capture_output=True, timeout=5,
         )
