@@ -68,17 +68,23 @@ The Node CLI opens piped input interactively when a controlling terminal is avai
 
 Run `mdview` or `mdview --history` in a terminal to search recent documents. Press `h` in the reader to open the same picker. Type to filter titles and locations by matching characters in order, including Unicode text. Entries remain in most-recent-first order.
 
+The reader has bordered headers and footers with inner padding. Small terminals use compact bars to leave room for content. History uses a one-row header and footer, with a search prompt above the list. The footer shows your position in the results. Dates appear beside titles when the terminal is wide enough.
+
+Press `Tab` for help with secondary actions. Press `Tab` or `Escape` to return to the list with your search and selection preserved. Clearing history opens a separate confirmation view.
+
 | Picker key | Action |
 | --- | --- |
 | Up / down arrow or `Ctrl+P` / `Ctrl+N` | Select an entry |
+| `Page Up` / `Page Down` | Move through results one page at a time |
 | `Enter` | Open the selected document and resume reading |
+| `Tab` | Show or hide help |
 | `Escape` | Return to the current document, or exit from the home screen |
 | `Backspace` | Remove the last query character |
 | `Ctrl+D` | Remove the selected history entry |
 | `Ctrl+X`, then `y` | Clear all history; another key cancels |
 | `Ctrl+C` | Quit |
 
-All printable keys, including `q`, `h`, `j`, and `k`, enter the query. The picker shows the title, location, last successful open, and missing local files. Missing entries remain until removed. Opening a missing file reports the read error; `h` returns to history. URLs are never fetched just to draw the list.
+All printable keys, including `q`, `h`, `j`, and `k`, enter the query while the list is visible. The picker shows the title, location, last successful open date, and missing local files. Missing entries remain until removed. Opening a missing file reports the read error; `h` returns to history. URLs are never fetched just to draw the list.
 
 History retains up to 200 successful file/URL opens in `$XDG_STATE_HOME/mdview/history.sqlite3`, or `~/.local/state/mdview/history.sqlite3` when that variable is unset or not absolute. SQLite transactions handle concurrent sessions. The directory is private (0700), and the database uses mode 0600. It stores location, title, time, and a reading anchor; it does not cache document bodies. This is local plaintext metadata, not encrypted storage.
 

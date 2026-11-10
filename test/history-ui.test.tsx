@@ -12,6 +12,7 @@ import { filterHistory } from '../src/history-picker.js'
 import { RenderSupervisor } from '../src/render-supervisor.js'
 import { DEFAULT_CONFIG } from '../src/config.js'
 import { resolveSource } from '../src/source.js'
+import { widthOf } from '../src/utils.js'
 
 it('filters Unicode titles and path subsequences while retaining recency order', () => {
   const entries = [
@@ -50,13 +51,13 @@ it('preserves the passage through history navigation and cancels abandoned URL r
     stdout: stdout as unknown as NodeJS.WriteStream, stdin: stdin as unknown as NodeJS.ReadStream,
     debug: true, patchConsole: false, exitOnCtrlC: false,
   })
-  const top = () => frame.split('\n')[1]?.trim()
+  const top = () => frame.split('\n')[3]?.trim()
   try {
     await vi.waitFor(() => expect(top()).toContain('Passage0'), { timeout: 3000 })
     for (let index = 0; index < 20; index++) { stdin.write('j'); await new Promise((resolve) => setTimeout(resolve, 5)) }
     await vi.waitFor(() => expect(top()).toContain('Passage10'))
     stdin.write('h')
-    await vi.waitFor(() => expect(frame).toContain('2 recent documents'))
+    await vi.waitFor(() => expect(frame).toContain('Recent documents · 2'))
     stdin.write('qhjkb')
     await vi.waitFor(() => {
       expect(frame).toContain('Search: qhjkb')
@@ -65,7 +66,7 @@ it('preserves the passage through history navigation and cancels abandoned URL r
     stdin.write('\u001b')
     await vi.waitFor(() => expect(top()).toContain('Passage10'))
     stdin.write('h')
-    await vi.waitFor(() => expect(frame).toContain('2 recent documents'))
+    await vi.waitFor(() => expect(frame).toContain('Recent documents · 2'))
     stdout.columns = 30
     stdout.emit('resize')
     stdin.write('\r')
@@ -76,15 +77,15 @@ it('preserves the passage through history navigation and cancels abandoned URL r
     await history.flush()
     expect((await history.read())[0].anchor).toBeDefined()
     stdin.write('h')
-    await vi.waitFor(() => expect(frame).toContain('2 recent documents'))
+    await vi.waitFor(() => expect(frame).toContain('Recent documents · 2'))
     stdin.write('Pending remote')
-    await vi.waitFor(() => expect(frame).toContain('1 recent documents'))
+    await vi.waitFor(() => expect(frame).toContain('Recent documents · 1'))
     stdin.write('\r')
     await vi.waitFor(() => expect(requested).toBe(true))
     stdin.write('h')
-    await vi.waitFor(() => expect(frame).toContain('2 recent documents'))
+    await vi.waitFor(() => expect(frame).toContain('Recent documents · 2'))
     stdin.write('reading.md')
-    await vi.waitFor(() => expect(frame).toContain('1 recent documents'))
+    await vi.waitFor(() => expect(frame).toContain('Recent documents · 1'))
     stdin.write('\r')
     await vi.waitFor(() => {
       expect(closed).toBe(true)
@@ -119,20 +120,50 @@ it('marks missing files, removes entries, and requires confirmation to clear his
   })
   try {
     await vi.waitFor(() => expect(frame).toContain('[missing] Missing'))
+    const lines = frame.split('\n')
+    expect(lines).toHaveLength(12)
+    expect(lines[0]).toContain('Recent documents · 2')
+    expect(lines[1]).toContain('Search: type to filter')
+    expect(lines[11]).toContain('Enter open · Tab help · Esc quit')
+    expect(lines.every((line) => widthOf(line) <= 80)).toBe(true)
+    expect(frame).not.toContain('Ctrl+D')
+    stdout.rows = 6
+    stdout.emit('resize')
+    stdin.write('\u001b[6~')
+    await vi.waitFor(() => expect(frame).toContain('› Remote'))
+    expect(frame).not.toContain('[missing] Missing')
+    expect(frame).toContain('2/2')
+    stdin.write('\t')
+    await vi.waitFor(() => {
+      expect(frame.split('\n')).toHaveLength(6)
+      expect(frame).not.toContain('╭')
+      expect(frame).toContain('History help')
+      expect(frame).toContain('Ctrl+D remove')
+      expect(frame).toContain('Ctrl+X clear')
+    })
+    stdin.write('\u001b')
+    await vi.waitFor(() => expect(frame).toContain('› Remote'))
+    stdin.write('\u001b[5~')
+    await vi.waitFor(() => expect(frame).toContain('› [missing] Missing'))
+    stdout.rows = 12
+    stdout.emit('resize')
     stdin.write('\r')
     await vi.waitFor(() => expect(frame).toContain('ENOENT'))
     expect(await history.read()).toHaveLength(2)
     stdin.write('h')
     await vi.waitFor(() => expect(frame).toContain('[missing] Missing'))
     stdin.write('\u0004')
-    await vi.waitFor(() => { expect(frame).toContain('1 recent documents'); expect(frame).not.toContain('Missing') })
+    await vi.waitFor(() => { expect(frame).toContain('Recent documents · 1'); expect(frame).not.toContain('Missing') })
     stdin.write('\u0018')
-    await vi.waitFor(() => expect(frame).toContain('Clear all history?'))
+    await vi.waitFor(() => expect(frame).toContain('Clear all 1 recent documents?'))
+    expect(frame).toContain('Your files stay on disk')
+    expect(frame).not.toContain('Search:')
+    expect(frame).not.toContain('Enter open')
     stdin.write('n')
     await vi.waitFor(() => expect(frame).toContain('Remote'))
     expect(await history.read()).toHaveLength(1)
     stdin.write('\u0018')
-    await vi.waitFor(() => expect(frame).toContain('Clear all history?'))
+    await vi.waitFor(() => expect(frame).toContain('Clear all 1 recent documents?'))
     stdin.write('y')
     await vi.waitFor(() => expect(frame).toContain('No recent documents'))
     expect(await history.read()).toEqual([])

@@ -9,11 +9,12 @@ import { App } from '../src/app.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 import { RenderSupervisor } from '../src/render-supervisor.js'
 import { resolveSource } from '../src/source.js';
+import { widthOf } from '../src/utils.js'
 
 it('reflows on resize without input and reloads saved and atomically replaced files', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'mdview-app-'));
   const file = path.join(directory, 'sample.md');
-  const markdown = '# Original\n\n```js\nconst message = "a long code line that wraps when the viewport becomes narrow";\n```\n\n| Name | Description |\n|---|---|\n| Example | A lengthy table cell that must fit the available width |\n';
+  const markdown = '# Original 開発 👩‍💻\n\n```js\nconst message = "a long code line that wraps when the viewport becomes narrow";\n```\n\n| Name | Description |\n|---|---|\n| Example | A lengthy table cell that must fit the available width |\n'
   await writeFile(file, markdown);
   let frame = '';
   const stdout = Object.assign(new Writable({
@@ -31,8 +32,20 @@ it('reflows on resize without input and reloads saved and atomically replaced fi
     debug: true, patchConsole: false, exitOnCtrlC: false,
   });
   const codeBorder = () => frame.split('\n').find((line) => line.includes('┌ js'))?.trim();
+  const expectBars = () => {
+    const lines = frame.split('\n')
+    expect(lines).toHaveLength(stdout.rows)
+    expect(lines.every((line) => widthOf(line) <= stdout.columns)).toBe(true)
+    for (const start of [0, stdout.rows - 3]) {
+      expect(lines[start]).toBe('╭' + '─'.repeat(stdout.columns - 2) + '╮')
+      expect(lines[start + 1]).toMatch(/^│ .* │$/u)
+      expect(widthOf(lines[start + 1])).toBe(stdout.columns)
+      expect(lines[start + 2]).toBe('╰' + '─'.repeat(stdout.columns - 2) + '╯')
+    }
+  }
   try {
     await vi.waitFor(() => expect(codeBorder()?.length).toBe(98), { timeout: 3000 })
+    expectBars()
     stdout.columns = 40;
     stdout.rows = 24;
     stdout.emit('resize');
@@ -43,6 +56,7 @@ it('reflows on resize without input and reloads saved and atomically replaced fi
     expect(frame.split('\n')).toHaveLength(24);
     expect(frame).toContain('Description');
     expect(frame).toContain('available width');
+    expectBars()
 
     stdout.columns = 100;
     stdout.rows = 30;
@@ -92,9 +106,9 @@ it('keeps the latest scrolled passage through pending reflow and insertions abov
     stdin: stdin as unknown as NodeJS.ReadStream,
     debug: true, patchConsole: false, exitOnCtrlC: false,
   })
-  const top = () => frame.split('\n')[1]?.trim()
+  const top = () => frame.split('\n')[3]?.trim()
   try {
-    await vi.waitFor(() => expect(top()).toContain('Passage0'))
+    await vi.waitFor(() => expect(top()).toContain('Passage0'), { timeout: 3000 })
     for (let index = 0; index < 20; index++) {
       stdin.write('j')
       await new Promise((resolve) => setTimeout(resolve, 5))
@@ -114,7 +128,7 @@ it('keeps the latest scrolled passage through pending reflow and insertions abov
     })
     await writeFile(file, '# Inserted above\n\nNew paragraph.\n\n' + markdown)
     await vi.waitFor(() => {
-      expect(frame.split('\n')[0]).toContain('Inserted')
+      expect(frame.split('\n')[1]).toContain('Inserted')
       expect(top()).toContain('Passage11')
     }, { timeout: 3000 })
     stdout.columns = 100

@@ -304,7 +304,7 @@ with tempfile.TemporaryDirectory(prefix="mdview-terminal-") as directory:
         ENV['XDG_STATE_HOME'] = str(pathlib.Path(directory) / ('history-' + pathlib.Path(runtime).name))
         history_document = "\n\n".join("Passage%d has enough words to wrap across several lines in a narrow terminal." % n for n in range(40))
         file.write_text(history_document, encoding="utf-8")
-        top = lambda frame: frame.splitlines()[1].strip() if len(frame.splitlines()) > 1 else ""
+        top = lambda frame: frame.splitlines()[3].strip() if len(frame.splitlines()) > 3 else ""
         session = Session([str(file)], config, terminal_stdin=True, runtime=runtime, history=True)
         try:
             session.wait(lambda frame: top(frame).startswith("Passage0 "))
@@ -314,7 +314,7 @@ with tempfile.TemporaryDirectory(prefix="mdview-terminal-") as directory:
                 session.wait(lambda frame: frame != previous_frame and "q quit" in frame)
             session.wait(lambda frame: top(frame).startswith("Passage10 "))
             session.key("h")
-            session.wait(lambda frame: "Recent documents" in frame and "1 recent documents" in frame)
+            session.wait(lambda frame: "Recent documents" in frame and "Recent documents · 1" in frame)
             session.key("source")
             session.wait(lambda frame: "Search: source" in frame)
             session.key("\x1b")
@@ -326,7 +326,7 @@ with tempfile.TemporaryDirectory(prefix="mdview-terminal-") as directory:
         session = Session(["--history"], config, terminal_stdin=True, runtime=runtime, history=True)
         try:
             session.resize(30)
-            session.wait(lambda frame: "Recent documents" in frame and "1 recent documents" in frame)
+            session.wait(lambda frame: "Recent documents" in frame and "Recent documents · 1" in frame)
             session.key("\r")
             session.wait(lambda frame: top(frame).startswith("Passage10 ") and any(line.strip().endswith("a narrow terminal.") and len(line.strip()) < 30 for line in frame.splitlines()))
             session.key("q")
