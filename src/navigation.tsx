@@ -75,6 +75,6 @@ export function Navigation({ source, config, renderer, history }: {
         onHistory={() => setPicker(true)} onDocument={(document, anchor) => record(document.title, anchor)}
         onPosition={(anchor) => { if (session.identity && history && remembered.current === session.id) history.position(session.identity.location, anchor) }} />
     </Box> : !picker ? <Text>Loading document…</Text> : null}
-    {picker ? <HistoryPicker store={history} theme={config.theme} notice={notice} onOpen={open} onClose={() => session ? setPicker(false) : exit()} /> : null}
+    {picker ? <HistoryPicker store={history} theme={config.theme} notice={notice} canGoBack={!!session} onOpen={open} onClose={() => session ? setPicker(false) : exit()} /> : null}
   </>
 }

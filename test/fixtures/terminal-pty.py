@@ -314,7 +314,7 @@ with tempfile.TemporaryDirectory(prefix="mdview-terminal-") as directory:
                 session.wait(lambda frame: frame != previous_frame and "q quit" in frame)
             session.wait(lambda frame: top(frame).startswith("Passage10 "))
             session.key("h")
-            session.wait(lambda frame: "Recent documents" in frame and "1 recent documents" in frame)
+            session.wait(lambda frame: "Recent documents" in frame and "Recent documents · 1" in frame)
             session.key("source")
             session.wait(lambda frame: "Search: source" in frame)
             session.key("\x1b")
@@ -326,7 +326,7 @@ with tempfile.TemporaryDirectory(prefix="mdview-terminal-") as directory:
         session = Session(["--history"], config, terminal_stdin=True, runtime=runtime, history=True)
         try:
             session.resize(30)
-            session.wait(lambda frame: "Recent documents" in frame and "1 recent documents" in frame)
+            session.wait(lambda frame: "Recent documents" in frame and "Recent documents · 1" in frame)
             session.key("\r")
             session.wait(lambda frame: top(frame).startswith("Passage10 ") and any(line.strip().endswith("a narrow terminal.") and len(line.strip()) < 30 for line in frame.splitlines()))
             session.key("q")
