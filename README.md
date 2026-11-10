@@ -9,8 +9,6 @@ Read Markdown in your terminal and return to where you left off.
 
 [Install](#install) · [Quick start](#quick-start) · [Recent documents](#recent-documents) · [Configure](#configure) · [Options](#options)
 
-This README describes `main`. The latest published release, [v0.1.1](https://github.com/cbuchler/mdview/releases/tag/v0.1.1), predates document history and the updated interface. [Build from source](#from-source) to use those features.
-
 ## Install
 
 ### Linux binary
