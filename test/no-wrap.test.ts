@@ -67,7 +67,7 @@ describe('no-wrap prose', () => {
     try {
       const child = spawnSync(process.execPath, [
         '--max-old-space-size=96', '--import', 'tsx', 'src/main.ts',
-        '--no-wrap', '--padding', '0', '--config', path.join(directory, 'missing.yml'),
+        '--no-wrap', '--padding', '0', '--no-history', '--config', path.join(directory, 'missing.yml'),
       ], {
         cwd: path.resolve(import.meta.dirname, '..'), input: markdown, encoding: 'utf8',
         env: { ...process.env, NODE_NO_WARNINGS: '1' },

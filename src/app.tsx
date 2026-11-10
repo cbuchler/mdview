@@ -12,6 +12,12 @@ interface AppProps {
   source: ResolvedSource;
   config: AppConfig;
   renderer?: RenderSupervisor
+  active?: boolean
+  initialAnchor?: ReadingAnchor
+  notice?: string
+  onHistory?: () => void
+  onDocument?: (document: RenderedDocument, anchor?: ReadingAnchor) => void
+  onPosition?: (anchor?: ReadingAnchor) => void
 }
 
 type LoadState =
@@ -24,7 +30,7 @@ interface RenderedSource {
   document: RenderedDocument;
 }
 
-export function App({ source, config, renderer: suppliedRenderer }: AppProps): React.JSX.Element {
+export function App({ source, config, renderer: suppliedRenderer, active = true, initialAnchor, notice, onHistory, onDocument, onPosition }: AppProps): React.JSX.Element {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const theme = resolveTheme(config.theme);
@@ -45,13 +51,19 @@ export function App({ source, config, renderer: suppliedRenderer }: AppProps): R
   const [scrollOffset, setScrollOffset] = useState(0)
   const scroll = useRef(0)
   const viewportHeight = useRef(rows - 2)
-  const readingAnchor = useRef<ReadingAnchor | undefined>()
+  const readingAnchor = useRef<ReadingAnchor | undefined>(initialAnchor)
+  const callbacks = useRef({ onDocument, onPosition })
+  callbacks.current = { onDocument, onPosition }
   const [state, setState] = useState<LoadState>({ phase: 'loading', message: `Loading ${source.displayName}...` });
-  const activeRequest = useRef(0);
+  const activeRequest = useRef(0)
+  const sourceRead = useRef<AbortController>()
   const lastGood = useRef<RenderedSource | undefined>(undefined);
 
   const load = useMemo(
     () => async (reason?: string): Promise<void> => {
+      sourceRead.current?.abort()
+      const controller = new AbortController()
+      sourceRead.current = controller
       renderer.cancel()
       ++renderRequest.current
       const requestId = activeRequest.current + 1;
@@ -67,6 +79,7 @@ export function App({ source, config, renderer: suppliedRenderer }: AppProps): R
         const result = await loadSource(source, {
           timeoutMs: config.timeoutMs,
           maxInputBytes: config.maxInputBytes,
+          signal: controller.signal,
         });
         if (activeRequest.current !== requestId) {
           return;
@@ -96,12 +109,13 @@ export function App({ source, config, renderer: suppliedRenderer }: AppProps): R
     void load();
     return () => {
       ++activeRequest.current
+      sourceRead.current?.abort()
       ++renderRequest.current
       renderer.cancel()
     }
   }, [load, renderer]);
 
-  useEffect(() => () => { void renderer.dispose() }, [renderer])
+  useEffect(() => () => { if (!suppliedRenderer) void renderer.dispose() }, [renderer, suppliedRenderer])
 
   useEffect(() => {
     if (!source.canWatch || !config.watch) {
@@ -152,6 +166,7 @@ export function App({ source, config, renderer: suppliedRenderer }: AppProps): R
       setScrollOffset(scroll.current)
       lastGood.current = { result, document: nextDocument }
       setDocument(nextDocument)
+      callbacks.current.onDocument?.(nextDocument, readingAnchor.current)
     }).catch((error: unknown) => {
       if (!mounted || renderRequest.current !== requestId || error instanceof RenderCancelledError) return
       const message = error instanceof Error ? error.message : String(error)
@@ -162,7 +177,7 @@ export function App({ source, config, renderer: suppliedRenderer }: AppProps): R
 
   const isError = state.phase === 'error';
   const loadingMessage = state.phase === 'loading' ? state.message : undefined;
-  const note = state.phase === 'error' ? state.error : loadingMessage ?? state.result?.warning;
+  const note = state.phase === 'error' ? state.error : loadingMessage ?? state.result?.warning ?? notice;
   const contentHeight = Math.max(1, rows - 2 - (note ? 1 : 0));
 
   viewportHeight.current = contentHeight
@@ -179,6 +194,7 @@ export function App({ source, config, renderer: suppliedRenderer }: AppProps): R
     scroll.current = clamp(offset, 0, maxScroll)
     readingAnchor.current = document && scroll.current > 0 ? captureReadingAnchor(document, scroll.current) : undefined
     setScrollOffset(scroll.current)
+    callbacks.current.onPosition?.(readingAnchor.current)
   }
 
   useInput((input: string, key: { ctrl?: boolean; downArrow?: boolean; upArrow?: boolean; pageDown?: boolean; pageUp?: boolean }) => {
@@ -186,6 +202,7 @@ export function App({ source, config, renderer: suppliedRenderer }: AppProps): R
       exit();
       return;
     }
+    if (input === 'h' && onHistory) { onHistory(); return }
     if (input === 'j' || key.downArrow) {
       moveTo(scroll.current + 1)
       return;
@@ -210,7 +227,7 @@ export function App({ source, config, renderer: suppliedRenderer }: AppProps): R
       moveTo(scroll.current - contentHeight)
       return;
     }
-  });
+  }, { isActive: active })
 
   const slice = availableLines.slice(scrollOffset, scrollOffset + contentHeight);
   while (slice.length < contentHeight) {
@@ -255,7 +272,7 @@ export function App({ source, config, renderer: suppliedRenderer }: AppProps): R
       </Box>
       <Box paddingX={padding} height={1} flexShrink={0} overflow="hidden">
         <Text color={theme.muted} wrap="truncate-end">
-          q quit · j/k scroll · arrows · g top · G bottom · space page down · b page up
+          q quit{onHistory ? ' · h history' : ''} · j/k scroll · arrows · g top · G bottom · space page down · b page up
         </Text>
       </Box>
     </Box>

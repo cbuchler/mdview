@@ -13,6 +13,8 @@ export interface CliOptions {
   maxInputBytes?: number;
   watch?: boolean;
   configPath?: string;
+  history?: boolean
+  noHistory?: boolean
   help?: boolean;
   version?: boolean;
   printConfig?: boolean;
