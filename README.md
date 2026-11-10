@@ -73,6 +73,12 @@ Long lines wrap by default. `--no-wrap` leaves prose unwrapped and clips it to t
 
 URLs have a timeout and an input size limit. `mdview` removes terminal control sequences from input and skips embedded HTML. Markdown nesting is limited to 128 AST child levels, including structural and inline nodes (root = 0). Character widths can vary with your terminal and font.
 
+Markdown parsing and layout run in one child process in both interactive and plain output. Each render has a 5-second wall-clock deadline, including child startup and response transfer. This deadline is separate from the URL timeout. A resize reuses the child's latest parsed document. A new request cancels unfinished work. Quit and catchable termination signals stop the child; normal CLI shutdown waits for its exit. An invalid or timed-out reload keeps the last valid title and content. Resize can reflow that content while the error remains visible.
+
+Each result is limited to 16 MiB of protocol data, 8 MiB of decoded text, 50,000 lines, and 100,000 styled segments. Titles and error messages are limited to 4 KiB; child diagnostics are limited to 8 KiB. These fixed output limits also apply when `maxInputBytes` is increased. Source text travels as bounded UTF-8 bytes, without a JSON copy. Protocol records are checked before display. These limits bound communication and retained output; they do not bound parser memory.
+
+The child has no hard OS memory limit. It can exhaust available memory before the deadline. Hard memory enforcement remains open in [issue #24](https://github.com/cbuchler/mdview/issues/24). If the parent receives an uncatchable termination such as `SIGKILL`, a busy child can continue until it finishes its synchronous work or fails. Idle children exit when their input pipe closes. No systemd service or native launcher is required.
+
 ## Options
 
 Run `mdview --help` for help.

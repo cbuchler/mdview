@@ -1,15 +1,16 @@
-import { renderMarkdownDocument, renderDocumentAsPlainText } from './markdown.js';
-import { resolveTheme } from './theme.js';
-import type { AppConfig } from './types.js';
+import { resolveTheme } from './theme.js'
+import { renderDocumentAsPlainText } from './render-text.js'
+import { RenderSupervisor } from './render-supervisor.js'
+import type { AppConfig } from './types.js'
 
-export function renderPlainText(markdown: string, sourceName: string, config: Pick<AppConfig, 'theme' | 'syntaxTheme' | 'wrap' | 'padding'>, width: number): string {
-  const document = renderMarkdownDocument(markdown, {
+export async function renderPlainText(markdown: string, sourceName: string, config: Pick<AppConfig, 'theme' | 'syntaxTheme' | 'wrap' | 'padding' | 'maxInputBytes'>, width: number, renderer: RenderSupervisor): Promise<string> {
+  const document = await renderer.render(markdown, {
     width,
-    theme: resolveTheme(config.theme),
+    theme: resolveTheme(config.theme).name,
     wrap: config.wrap,
     padding: config.padding,
-    syntaxTheme: resolveTheme(config.syntaxTheme),
+    syntaxTheme: resolveTheme(config.syntaxTheme).name,
     sourceName,
-  });
-  return renderDocumentAsPlainText(document);
+  }, config.maxInputBytes)
+  return renderDocumentAsPlainText(document)
 }

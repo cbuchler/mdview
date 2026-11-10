@@ -7,7 +7,7 @@ import { render } from 'ink';
 import { expect, it, vi } from 'vitest';
 import { App } from '../src/app.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
-import * as markdown from '../src/markdown.js';
+import { RenderSupervisor } from '../src/render-supervisor.js'
 import * as sources from '../src/source.js';
 
 const deepMarkdown = '# Rejected title\n\n' + '> '.repeat(2000) + 'Rejected body';
@@ -55,7 +55,7 @@ async function mount(markdownText: string) {
 it('keeps invalid initial content mounted, recovers on a valid save, and quits', async () => {
   const app = await mount(deepMarkdown);
   try {
-    await vi.waitFor(() => expect(app.frame()).toContain('Markdown nesting exceeds'));
+    await vi.waitFor(() => expect(app.frame()).toContain('Markdown nesting exceeds'), { timeout: 3000 });
     expect(app.frame()).not.toContain('Rejected title');
     expect(app.frame()).not.toContain('Rejected body');
     expect(app.frame()).toContain('q quit');
@@ -73,9 +73,7 @@ it('keeps invalid initial content mounted, recovers on a valid save, and quits',
 }, 10000);
 
 it('quits while an initial rendering error is still displayed', async () => {
-  vi.spyOn(markdown, 'renderMarkdownDocument').mockImplementation(() => {
-    throw new Error('Initial render failure');
-  });
+  vi.spyOn(RenderSupervisor.prototype, 'render').mockRejectedValue(new Error('Initial render failure'))
   const app = await mount('# Cannot render');
   try {
     await vi.waitFor(() => expect(app.frame()).toContain('Initial render failure'));
@@ -89,7 +87,7 @@ it('quits while an initial rendering error is still displayed', async () => {
 it('retains validated title/content after a hostile save, reflows that content on resize, and recovers', async () => {
   const app = await mount('# Original\n\n' + 'Safe content '.repeat(12));
   try {
-    await vi.waitFor(() => expect(app.frame()).toContain('# Original'));
+    await vi.waitFor(() => expect(app.frame()).toContain('# Original'), { timeout: 3000 });
     await app.save(deepMarkdown);
     await vi.waitFor(() => expect(app.frame()).toContain('Markdown nesting exceeds'), { timeout: 3000 });
     expect(app.frame()).toContain('# Original');
@@ -97,6 +95,7 @@ it('retains validated title/content after a hostile save, reflows that content o
     expect(app.frame()).not.toContain('Rejected');
     app.resize(40);
     await vi.waitFor(() => expect(app.frame().split('\n')[0].length).toBeLessThanOrEqual(40));
+    await vi.waitFor(() => expect(app.frame().split('\n').filter((line) => line.includes('Safe content')).length).toBeGreaterThan(2))
     expect(app.frame()).toContain('Markdown nesting exceeds');
     expect(app.frame()).toContain('# Original');
     expect(app.frame()).toContain('Safe content');
@@ -112,18 +111,18 @@ it('retains validated title/content after a hostile save, reflows that content o
   }
 }, 10000);
 
-it('catches actual reload and resize render failures, sanitizes errors, and falls back if reflow also fails', async () => {
-  const renderDocument = markdown.renderMarkdownDocument;
-  const renderer = vi.spyOn(markdown, 'renderMarkdownDocument').mockImplementation((text, options) => {
+it('keeps last-good content when the supervisor rejects reloads and reflow, and sanitizes its errors', async () => {
+  const renderDocument = RenderSupervisor.prototype.render
+  const renderer = vi.spyOn(RenderSupervisor.prototype, 'render').mockImplementation(function (this: RenderSupervisor, text, options, maxInputBytes) {
     if (text.includes('RENDER_FAILURE') || options.width === 40) {
-      throw new Error('Forced render failure\u001b[31m');
+      return Promise.reject(new Error('Forced render failure\u001b[31m'))
     }
-    return renderDocument(text, options);
+    return renderDocument.call(this, text, options, maxInputBytes)
   });
   const loader = vi.spyOn(sources, 'loadSource');
   const app = await mount('# LastGood\n\nKnown good body');
   try {
-    await vi.waitFor(() => expect(app.frame()).toContain('# LastGood'));
+    await vi.waitFor(() => expect(app.frame()).toContain('# LastGood'), { timeout: 3000 });
     const initialLoads = loader.mock.calls.length;
     app.resize(40);
     await vi.waitFor(() => expect(app.frame()).toContain('Forced render failure'));
@@ -148,3 +147,24 @@ it('catches actual reload and resize render failures, sanitizes errors, and fall
     await app.cleanup();
   }
 }, 10000);
+
+it('does not let an older source read replace a newer rendered save', async () => {
+  const loadSource = sources.loadSource
+  const app = await mount('# Original\n\nOriginal content')
+  try {
+    await vi.waitFor(() => expect(app.frame()).toContain('# Original'), { timeout: 3000 })
+    let finishOld!: (result: Awaited<ReturnType<typeof loadSource>>) => void
+    const loader = vi.spyOn(sources, 'loadSource').mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve }))
+    await app.save('# Older\n\nOld save')
+    await vi.waitFor(() => expect(finishOld).toBeTypeOf('function'))
+    loader.mockImplementation(loadSource)
+    await app.save('# Latest\n\nLatest content')
+    await vi.waitFor(() => expect(app.frame()).toContain('# Latest'), { timeout: 3000 })
+    finishOld({ text: '# Stale\n\nForbidden old content', displayName: 'stale.md', bytesRead: 35 })
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(app.frame()).toContain('# Latest')
+    expect(app.frame()).not.toContain('Forbidden')
+  } finally {
+    await app.cleanup()
+  }
+}, 10000)

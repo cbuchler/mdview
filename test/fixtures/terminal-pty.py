@@ -8,6 +8,7 @@ import pathlib
 import pty
 import re
 import select
+import signal
 import shutil
 import struct
 import subprocess
@@ -20,8 +21,9 @@ import time
 
 ROOT = pathlib.Path(sys.argv[1])
 NODE = sys.argv[2]
+BINARY = str(pathlib.Path(sys.argv[3]).resolve()) if len(sys.argv) > 3 else None
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-ENV = {**os.environ, "TERM": "xterm-256color", "NODE_NO_WARNINGS": "1", "CI": "false"}
+ENV = {**os.environ, "TERM": "xterm-256color", "NODE_NO_WARNINGS": "1", "CI": "false", "NODE_OPTIONS": "--max-old-space-size=256"}
 RESULTS = []
 
 
@@ -46,8 +48,11 @@ class Session:
                     os.close(fd)
                     raise RuntimeError("no-ctty fixture unexpectedly has /dev/tty")
 
-        command = [runtime] if pathlib.Path(runtime).name == "bun" else [runtime, "--max-old-space-size=128", "--import", "tsx"]
-        command += [fixture] if fixture else ["src/main.ts", *args, "--config", str(config)]
+        if runtime == BINARY:
+            command = [runtime, *args, "--config", str(config)]
+        else:
+            command = [runtime] if pathlib.Path(runtime).name == "bun" else [runtime, "--max-old-space-size=128", "--import", "tsx"]
+            command += [fixture] if fixture else ["src/main.ts", *args, "--config", str(config)]
         self.proc = subprocess.Popen(
             command, cwd=ROOT, env=ENV, preexec_fn=setup,
             stdin=self.slave if terminal_stdin else input_file if input_file else subprocess.PIPE,
@@ -101,8 +106,22 @@ class Session:
         self.key(key)
         self.wait(lambda frame: b"\x1b[2J" in self.output[start:] and marker in frame)
 
+    def resize(self, columns):
+        fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 14, columns, 0, 0))
+        os.kill(self.proc.pid, signal.SIGWINCH)
+
+    def worker(self):
+        path = pathlib.Path("/proc/%d/task/%d/children" % (self.proc.pid, self.proc.pid))
+        if path.exists():
+            for value in path.read_text().split():
+                command = pathlib.Path("/proc/%s/cmdline" % value)
+                if command.exists() and b"--internal-render-worker" in command.read_bytes():
+                    return int(value)
+        return None
+
     def finish(self, status=0):
-        assert self.proc.wait(timeout=3) == status, self.output[-6000:]
+        actual = self.proc.wait(timeout=3)
+        assert actual == status, (actual, self.output[-6000:])
         self.drain(0)
         assert termios.tcgetattr(self.slave) == self.before, "terminal flags were not restored"
         assert b"Raw mode is not supported" not in self.output
@@ -274,6 +293,61 @@ with tempfile.TemporaryDirectory(prefix="mdview-terminal-") as directory:
             RESULTS.append({"case": "Bun borrowed terminal stdin", "interactive": True, "quitExit": 0})
         finally:
             session.close()
+
+    # This heap setting bounds the Node test harness. It is not a product limit.
+    expensive = ("| cell " * 500 + "|\n") + ("|---" * 500 + "|\n") + ("| cell " * 500 + "|\n") * 300
+    runtimes = [NODE] + ([shutil.which("bun")] if shutil.which("bun") else []) + ([BINARY] if BINARY else [])
+    for runtime in runtimes:
+        file.write_text("# LAST_GOOD\n\n" + "Safe content " * 20, encoding="utf-8")
+        session = Session([str(file), "--refresh", "20ms"], config, terminal_stdin=True, runtime=runtime)
+        try:
+            session.wait(lambda frame: "# LAST_GOOD" in frame)
+            file.write_text("# HOSTILE_TITLE\n\n" + "> " * 2000 + "Hostile body", encoding="utf-8")
+            session.wait(lambda frame: "Markdown nesting exceeds" in frame)
+            assert "LAST_GOOD" in session.frame() and "HOSTILE_TITLE" not in session.frame()
+            session.resize(40)
+            session.wait(lambda frame: "Markdown nesting exceeds" in frame and frame.count("Safe content") > 4)
+            assert "LAST_GOOD" in session.frame() and "HOSTILE_TITLE" not in session.frame()
+            file.write_text("# RECOVERED\n\nHealthy reload", encoding="utf-8")
+            session.wait(lambda frame: "# RECOVERED" in frame and "Healthy reload" in frame)
+            assert "Markdown nesting exceeds" not in session.frame()
+            previous = session.worker()
+            assert previous, "persistent worker was not found"
+            def cpu_ticks(pid):
+                path = pathlib.Path("/proc/%d/stat" % pid)
+                return sum(map(int, path.read_text().split()[13:15])) if path.exists() else 0
+            before_ticks = cpu_ticks(previous)
+            file.write_text(expensive, encoding="utf-8")
+            session.wait(lambda frame: cpu_ticks(previous) >= before_ticks + 5)
+            busy = previous
+            session.resize(60)
+            shutdown_start = len(session.output)
+            session.key("q")
+            session.finish()
+            assert not pathlib.Path("/proc/%d" % busy).exists(), "render child survived quit"
+            assert b"\x1b[?25h" in session.output[shutdown_start:], "cursor was not restored on shutdown"
+            RESULTS.append({"case": "render reload/resize/busy quit " + pathlib.Path(runtime).name, "lastGood": True, "childReaped": True, "rawRestored": True})
+        finally:
+            session.close()
+
+        file.write_text("# SIGNAL_READY\n\nReady before expensive reload", encoding="utf-8")
+        session = Session([str(file), "--refresh", "20ms"], config, terminal_stdin=True, runtime=runtime)
+        try:
+            session.wait(lambda frame: "# SIGNAL_READY" in frame)
+            busy = session.worker()
+            assert busy, "persistent worker was not found"
+            before_ticks = cpu_ticks(busy)
+            file.write_text(expensive, encoding="utf-8")
+            session.wait(lambda frame: cpu_ticks(busy) >= before_ticks + 5)
+            shutdown_start = len(session.output)
+            os.kill(session.proc.pid, signal.SIGTERM)
+            session.finish(status=143)
+            assert not pathlib.Path("/proc/%d" % busy).exists(), "render child survived SIGTERM"
+            assert b"\x1b[?25h" in session.output[shutdown_start:], "cursor was not restored on shutdown"
+            RESULTS.append({"case": "SIGTERM during render " + pathlib.Path(runtime).name, "childReaped": True, "rawRestored": True})
+        finally:
+            session.close()
+    file.write_text(document, encoding="utf-8")
 
     session = Session([], config, terminal_stdin=True)
     try:

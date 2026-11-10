@@ -61,12 +61,7 @@ export function renderMarkdownDocument(
   }
 }
 
-export function renderDocumentAsPlainText(document: RenderedDocument): string {
-  return document.lines
-    .map((line) => line.map((segment) => segment.text).join(''))
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n');
-}
+export { renderDocumentAsPlainText } from './render-text.js'
 
 function renderBlocks(
   nodes: Nodes[],
