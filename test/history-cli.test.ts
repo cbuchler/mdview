@@ -1,12 +1,12 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import { expect, it } from 'vitest'
 import { HistoryStore } from '../src/history.js'
 
 it('keeps stdin and failed opens out of history, records successful plain output, and enforces opt-out and terminal-only history', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'mdview-history-cli-'))
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'mdview-history-cli-')))
   const state = path.join(root, 'state')
   const history = new HistoryStore(path.join(state, 'mdview'))
   const file = path.join(root, 'document.md')
