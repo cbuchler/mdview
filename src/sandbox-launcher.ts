@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process'
-import { access, mkdir, readdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { access, copyFile, mkdir, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -91,16 +91,27 @@ export async function runSandboxLauncher(command: string[], directory: string): 
     binaries.push(socat, seccomp)
   }
   const read = await runtimeFiles(binaries)
+  let workerArgs = command.slice(1)
   const bun = globalThis as typeof globalThis & { Bun?: { isStandaloneExecutable?: boolean } }
   if (!bun.Bun?.isStandaloneExecutable) {
     const modules = path.dirname(fileURLToPath(import.meta.url))
     const root = path.dirname(modules)
-    // Bun enumerates the module directory when resolving source files on macOS.
-    if (process.platform === 'darwin' && process.versions.bun) read.push(modules)
-    for (const name of await readdir(modules)) {
-      if (/\.(?:js|ts|tsx)$/.test(name) && !name.endsWith('.d.ts')) read.push(path.join(modules, name))
+    const names = (await readdir(modules)).filter((name) => /\.(?:js|ts|tsx)$/.test(name) && !name.endsWith('.d.ts'))
+    if (process.platform === 'darwin' && process.versions.bun) {
+      // Bun scans module ancestors. Stage only application assets to keep the checkout unreadable.
+      const app = path.join(await realpath(directory), 'app')
+      const stagedModules = path.join(app, path.basename(modules))
+      await rm(app, { recursive: true, force: true })
+      await mkdir(stagedModules, { mode: 0o700, recursive: true })
+      for (const name of names) await copyFile(path.join(modules, name), path.join(stagedModules, name))
+      await copyFile(path.join(root, 'package.json'), path.join(app, 'package.json'))
+      await symlink(path.join(root, 'node_modules'), path.join(app, 'node_modules'))
+      workerArgs = workerArgs.map((arg) => arg.startsWith(root + '/') ? app + arg.slice(root.length) : arg)
+      read.push(app)
+    } else {
+      read.push(...names.map((name) => path.join(modules, name)), path.join(root, 'package.json'))
     }
-    read.push(path.join(root, 'package.json'), path.join(root, 'node_modules'))
+    read.push(path.join(root, 'node_modules'))
   }
   const literal = (value: string) => ({ path: value, literal: true as const })
   const config: SandboxRuntimeConfig = {
@@ -125,7 +136,7 @@ export async function runSandboxLauncher(command: string[], directory: string): 
     }
     // Remove proxy variables and runtime startup hooks from the parser environment.
     const invocation = [env, '-i', 'HOME=/nonexistent', 'PATH=/nonexistent', 'LANG=C.UTF-8',
-      'NODE_NO_WARNINGS=1', 'TSX_DISABLE_CACHE=1', `TMPDIR=${work}`, runtime, ...command.slice(1)]
+      'NODE_NO_WARNINGS=1', 'TSX_DISABLE_CACHE=1', `TMPDIR=${work}`, runtime, ...workerArgs]
     const wrapped = await SandboxManager.wrapWithSandboxArgv('exec ' + invocation.map(quote).join(' '), shell)
     const child = spawn(wrapped.argv[0], wrapped.argv.slice(1), { env: wrapped.env, stdio: 'inherit' })
     const status = await new Promise<number>((resolve, reject) => {
