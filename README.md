@@ -173,7 +173,9 @@ pinned to version 0.0.82. Windows is not supported.
 
 - Linux requires Bubblewrap with user namespace support and `/usr/bin/ldd`.
   The parser needs no nested namespace helper or proxy. Host security policy
-  must permit Bubblewrap itself; mdview does not change that policy.
+  must permit Bubblewrap itself; mdview does not change that policy. Ubuntu
+  24.04 arm64 CI blocked Bubblewrap network-namespace setup before parser
+  startup. That configuration is not validated as supported.
 - macOS requires the system `/usr/bin/sandbox-exec` and `/bin/bash`. It uses
   Apple's Seatbelt profiles without an Endpoint Security entitlement. Custom
   profiles remain an unsupported Apple interface.
