@@ -316,10 +316,11 @@ with tempfile.TemporaryDirectory(prefix="mdview-terminal-") as directory:
         session = Session([str(file)], config, terminal_stdin=True, runtime=runtime, history=True)
         try:
             session.wait(lambda frame: top(frame).startswith("Passage0 "))
-            for _ in range(20):
-                previous_frame = session.frame()
+            for step in range(20):
                 session.key("j")
-                session.wait(lambda frame: frame != previous_frame and "q quit" in frame)
+                expected_top = "" if step % 2 == 0 else "Passage%d " % ((step + 1) // 2)
+                # Header updates can produce a new frame before the key changes the viewport.
+                session.wait(lambda frame: top(frame) == "" if expected_top == "" else top(frame).startswith(expected_top))
             session.wait(lambda frame: top(frame).startswith("Passage10 "))
             session.key("h")
             session.wait(lambda frame: "Recent documents" in frame and "Recent documents · 1" in frame)
