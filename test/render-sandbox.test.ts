@@ -208,7 +208,7 @@ it.skipIf(!['linux', 'darwin'].includes(process.platform)).each([undefined, ...(
 }, 15000)
 
 
-it.skipIf(!['linux', 'darwin'].includes(process.platform))('stops retained external allocations under the real memory limit and permits a later render', async () => {
+it.skipIf(!['linux', 'darwin'].includes(process.platform)).each([process.execPath, ...(process.env.MDVIEW_TEST_BUN ? [process.env.MDVIEW_TEST_BUN] : [])])('stops retained external allocations and permits a later render (%s)', async (runtime) => {
   // Bound the baseline too: a broken limit must not turn this probe into host exhaustion.
   const code = `
     console.log('allocation-started')
@@ -219,8 +219,8 @@ it.skipIf(!['linux', 'darwin'].includes(process.platform))('stops retained exter
     }
     console.log('allocation-completed')
   `
-  expect((await runFile(process.execPath, ['-e', code])).stdout).toContain('allocation-completed')
-  const launch = await sandbox.sandboxLaunch([process.execPath, '-e', code])
+  expect((await runFile(runtime, ['-e', code])).stdout).toContain('allocation-completed')
+  const launch = await sandbox.sandboxLaunch([runtime, '-e', code])
   try {
     const result = await new Promise<{ output: string, error: string, status: number | null }>((resolve, reject) => {
       const child = sandbox.spawnRenderProcess(launch)
@@ -243,3 +243,13 @@ it.skipIf(!['linux', 'darwin'].includes(process.platform))('stops retained exter
     } finally { await renderer.dispose() }
   } finally { await launch.cleanup?.() }
 }, 15000)
+
+it.skipIf(process.platform !== 'darwin')('rejects a macOS executable that does not load the memory guard', async () => {
+  // Apple platform executables discard DYLD injection. A clean exit is not readiness.
+  const launch = await sandbox.sandboxLaunch(['/usr/bin/true'])
+  try {
+    await expect(runFile(launch.command, launch.args, {
+      env: launch.env, cwd: launch.cwd, timeout: 8000,
+    })).rejects.toThrow('Memory protection readiness was not verified')
+  } finally { await launch.cleanup?.() }
+}, 10000)

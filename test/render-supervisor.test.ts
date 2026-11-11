@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -149,11 +150,11 @@ it('rejects invalid source ranges, context, ordering, and offsets before anchor 
   expect(() => ranges.accept({ type: 'block', block: { ...block, start: 10 } })).toThrow('response order')
 })
 
-it.skipIf(!['linux', 'darwin'].includes(process.platform))('rejects a pathological table below the input cap and renders a healthy replacement', async () => {
+it.skipIf(!['linux', 'darwin'].includes(process.platform)).each([undefined, ...(existsSync('release/mdview') ? [path.resolve('release/mdview')] : [])])('rejects a pathological table and renders a healthy replacement (%s)', async (binary) => {
   const row = '|' + ' cell |'.repeat(100) + '\n'
   const table = row + '|' + ' --- |'.repeat(100) + '\n' + row.repeat(1000)
   expect(Buffer.byteLength(table)).toBeLessThan(maxBytes)
-  const renderer = new RenderSupervisor()
+  const renderer = new RenderSupervisor(binary ? { command: [binary, '--internal-render-worker'] } : {})
   try {
     await expect(renderer.render(table, options, maxBytes)).rejects.toThrow(/exited|closed|killed|deadline|limit/)
     expect((await renderer.render('# Recovered', options, maxBytes)).title).toBe('Recovered')
