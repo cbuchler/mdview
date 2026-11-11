@@ -139,7 +139,7 @@ async function launchSandbox(command: string[], directory: string): Promise<void
       })
       process.exitCode = await new Promise<number>((resolve, reject) => {
         child.once('error', reject)
-        child.once('exit', (code) => resolve(code ?? 1))
+        child.once('exit', (code, signal) => resolve(code ?? (signal === 'SIGKILL' ? 137 : 1)))
       })
     } finally {
       await filter.close()
@@ -180,11 +180,29 @@ async function launchSandbox(command: string[], directory: string): Promise<void
       throw new Error([...dependencies.errors, ...dependencies.warnings].join('; '))
     }
     // Remove proxy variables and runtime startup hooks from the parser environment.
+    const profilePath = path.join(directory, 'profile.sb')
     const invocation = [env, '-i', 'HOME=/nonexistent', 'PATH=/nonexistent', 'LANG=C.UTF-8',
-      'NODE_NO_WARNINGS=1', 'TSX_DISABLE_CACHE=1', `TMPDIR=${work}`, memoryHelper, memoryGuard, String(RENDER_MEMORY_MIB), runtime, ...workerArgs]
+      'NODE_NO_WARNINGS=1', 'TSX_DISABLE_CACHE=1', `TMPDIR=${work}`, memoryHelper, memoryGuard, String(RENDER_MEMORY_MIB), profilePath, runtime, ...workerArgs]
     const wrapped = await SandboxManager.wrapWithSandboxArgv('exec ' + invocation.map(quote).join(' '), shell)
-    const child = spawn(wrapped.argv[0], wrapped.argv.slice(1), {
-      env: wrapped.env, stdio: ['pipe', 'inherit', 'inherit', 'pipe'],
+    // SRT 0.0.82 quotes literal argv; reject changed syntax instead of evaluating it.
+    const words = wrapped.argv[2]?.match(/'(?:[^']|'"'"')*'|[A-Za-z0-9_./:=@+,-]+/g) ?? []
+    if (wrapped.argv[0] !== shell || wrapped.argv[1] !== '-c' || words.join(' ') !== wrapped.argv[2]) {
+      throw new Error('Unsupported SRT macOS wrapper syntax')
+    }
+    const argv = words.map((word) => word.startsWith("'") ? word.slice(1, -1).replaceAll("'\"'\"'", "'") : word)
+    const index = argv.indexOf('/usr/bin/sandbox-exec')
+    if (index < 0 || argv[index + 1] !== '-p' || argv[index + 3] !== shell || argv[index + 4] !== '-c') {
+      throw new Error('Missing SRT macOS profile')
+    }
+    const profile = argv[index + 2]
+    if (!profile.startsWith('(version 1)') || !profile.includes('(deny default') ||
+        !profile.includes('(allow process-exec)') || !profile.includes('(allow process-fork)')) {
+      throw new Error('Unsupported SRT macOS profile')
+    }
+    await writeFile(profilePath, profile.replace('(allow process-exec)', '(deny process-exec)')
+      .replace('(allow process-fork)', '(deny process-fork)'), { mode: 0o600 })
+    const child = spawn(invocation[0], invocation.slice(1), {
+      env: {}, stdio: ['pipe', 'inherit', 'inherit', 'pipe'],
     })
     const ready = child.stdio[3] as import('node:stream').Readable
     let handshake = ''
@@ -199,7 +217,7 @@ async function launchSandbox(command: string[], directory: string): Promise<void
     child.stdin!.on('error', () => {})
     const status = await new Promise<number>((resolve, reject) => {
       child.once('error', reject)
-      child.once('exit', (code) => resolve(code ?? 1))
+      child.once('exit', (code, signal) => resolve(code ?? (signal === 'SIGKILL' ? 137 : 1)))
     })
     process.stdin.unpipe(child.stdin!)
     if (handshake !== MEMORY_READY) throw new Error('Memory protection readiness was not verified')

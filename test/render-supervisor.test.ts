@@ -148,3 +148,14 @@ it('rejects invalid source ranges, context, ordering, and offsets before anchor 
   ranges.accept({ type: 'line', line: [], source: { block: 0, offset: 10 } })
   expect(() => ranges.accept({ type: 'block', block: { ...block, start: 10 } })).toThrow('response order')
 })
+
+it.skipIf(!['linux', 'darwin'].includes(process.platform))('rejects a pathological table below the input cap and renders a healthy replacement', async () => {
+  const row = '|' + ' cell |'.repeat(100) + '\n'
+  const table = row + '|' + ' --- |'.repeat(100) + '\n' + row.repeat(1000)
+  expect(Buffer.byteLength(table)).toBeLessThan(maxBytes)
+  const renderer = new RenderSupervisor()
+  try {
+    await expect(renderer.render(table, options, maxBytes)).rejects.toThrow(/exited|closed|killed|deadline|limit/)
+    expect((await renderer.render('# Recovered', options, maxBytes)).title).toBe('Recovered')
+  } finally { await renderer.dispose() }
+}, 15000)

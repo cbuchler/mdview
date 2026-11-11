@@ -11,11 +11,21 @@ __attribute__((constructor)) static void restrict_process(void) {
     fputs("macOS memory launch configuration missing\n", stderr);
     _exit(90);
   }
+  const char *profile_path = getenv("MDVIEW_SANDBOX_PROFILE");
+  FILE *file = profile_path ? fopen(profile_path, "rb") : NULL;
+  if (!file || fseek(file, 0, SEEK_END)) _exit(90);
+  long size = ftell(file);
+  if (size <= 0 || size > 1024 * 1024 || fseek(file, 0, SEEK_SET)) _exit(90);
+  char *profile = calloc((size_t)size + 1, 1);
+  if (!profile || fread(profile, 1, (size_t)size, file) != (size_t)size) _exit(90);
+  fclose(file);
   char *error = NULL;
-  if (sandbox_init("(version 1)(allow default)(deny process-fork)(deny process-exec)", 0, &error)) {
+  if (sandbox_init(profile, 0, &error)) {
     fprintf(stderr, "macOS process restriction failed: %s\n", error ? error : "unknown");
     _exit(90);
   }
+  free(profile);
+  unsetenv("MDVIEW_SANDBOX_PROFILE");
   unsetenv("DYLD_INSERT_LIBRARIES");
   unsetenv("MDVIEW_MEMORY_MIB");
   // The trusted launcher withholds input until the bounded exec has loaded this guard.
