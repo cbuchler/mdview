@@ -66,6 +66,9 @@ not install completions automatically; copy them from the archive to your
 shell's completion directory if needed. See [release artifact preparation](docs/distribution.md)
 for checksum verification and the publication checks.
 
+Homebrew delivery is being prepared separately. The tap is not yet available;
+see the [Homebrew preparation and validation steps](docs/homebrew.md).
+
 ### From source
 
 Use Node.js 22.13 or newer and npm to build from source:

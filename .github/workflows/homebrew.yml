@@ -3,7 +3,7 @@ on:
   pull_request:
     paths:
       - 'packaging/homebrew/**'
-      - 'scripts/prepare-homebrew.mjs'
+      - 'scripts/prepare-homebrew*'
       - '.github/workflows/homebrew.yml'
   workflow_dispatch:
 concurrency:
@@ -45,8 +45,8 @@ jobs:
       - name: Build and test source installation
         run: |
           brew install --build-bottle cbuchler/tap/mdview
-          brew test --verbose cbuchler/tap/mdview
           mdview --no-history README.md > /tmp/mdview-brew-source.txt
+          brew test --verbose cbuchler/tap/mdview
       - name: Build bottle and verify a real pour
         shell: bash
         run: |
@@ -58,8 +58,8 @@ jobs:
           brew install ./*.bottle.tar.gz
           brew info --json=v2 cbuchler/tap/mdview > receipt.json
           jq -e '.formulae[0].installed[0].poured_from_bottle == true' receipt.json
-          brew test --verbose cbuchler/tap/mdview
           mdview --no-history ../../README.md > /tmp/mdview-brew-bottle.txt
+          brew test --verbose cbuchler/tap/mdview
           test -f "$(brew --prefix)/share/zsh/site-functions/_mdview"
           test -f "$(brew --prefix)/share/fish/vendor_completions.d/mdview.fish"
           test -f "$(brew --prefix)/etc/bash_completion.d/mdview"

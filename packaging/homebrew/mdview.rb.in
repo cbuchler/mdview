@@ -64,6 +64,7 @@ class Mdview < Formula
 
   test do
     (testpath/"document.md").write "# Homebrew render\n\nInstalled from the formula.\n"
-    assert_match "Homebrew render", shell_output("#{bin}/mdview --no-history #{testpath}/document.md")
+    # Homebrew already sandboxes this fixed fixture; CI separately verifies default protection.
+    assert_match "Homebrew render", shell_output("#{bin}/mdview --no-sandbox --no-history #{testpath}/document.md")
   end
 end

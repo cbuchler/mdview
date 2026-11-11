@@ -15,6 +15,12 @@ mdview verifies the active memory controls before rendering. The tap does not
 change AppArmor policy or install/start a privileged service. On macOS, source
 builds need Apple command-line tools. The initial validation targets macOS 26.
 
+Homebrew already sandboxes its formula tests and can block nested sandbox
+setup. The formula therefore uses explicit `--no-sandbox` only for its fixed
+test document. Separate native CI checks render through the installed source
+build and poured bottle with default protection outside that test wrapper.
+The formula test alone is not containment evidence.
+
 ## Prepare a formula update
 
 Use the reviewed release tag and the checksum of its source archive:
@@ -32,7 +38,19 @@ release version that differs from package.json. For pre-release CI only, it
 also accepts a full immutable commit ID. Do not publish a CI formula under
 an existing stable release number.
 
-Copy the generated formula into a branch in the maintained tap and open a PR.
+After the stable release is published and the tap exists, the preparation
+script can open a draft update PR from a clean checkout of that release tag:
+
+```sh
+sh scripts/prepare-homebrew-update.sh v0.3.0
+```
+
+It verifies the checkout/tag and published release state, downloads and hashes
+the immutable source archive, generates the formula, then pushes a new tap
+branch and opens a draft PR. It does not merge or publish bottles. The script
+requires GitHub authentication with write access to the maintained tap.
+
+Alternatively, copy the generated formula into a tap branch and open a PR.
 Build native bottles from that exact formula and source revision. The mdview
 Homebrew workflow demonstrates the source-build, bottle-pour, completion and
 uninstall checks. A formula syntax check is not installation proof.
