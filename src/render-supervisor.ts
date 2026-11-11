@@ -1,6 +1,7 @@
-import { spawn } from 'node:child_process'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { sandboxLaunch, spawnRenderProcess, SANDBOX_FAILURE } from './render-sandbox.js'
+import type { RenderLaunch } from './render-sandbox.js'
 import { RENDER_PROTOCOL_VERSION, DocumentReceiver, FrameReader, frame, record, displayString, decodeFrame, RENDER_TIMEOUT_MS, MAX_RENDER_HEADER_BYTES, MAX_RENDER_WIRE_BYTES, MAX_RENDER_LABEL_BYTES } from './render-protocol.js'
 import type { RenderOptions } from './render-protocol.js'
 import type { RenderedDocument } from './types.js'
@@ -41,13 +42,15 @@ export class RenderSupervisor {
   private pending: Pending | undefined
   private generation = 0
   private disposed = false
+  private launch: Promise<RenderLaunch> | undefined
   private exitHandler = () => { this.worker?.child.kill('SIGKILL') }
 
-  constructor(private options: { timeoutMs?: number; command?: string[] } = {}) {
+  constructor(private options: { timeoutMs?: number; command?: string[]; sandbox?: boolean } = {}) {
     process.once('exit', this.exitHandler)
   }
 
   async render(markdown: string, options: RenderOptions, maxInputBytes: number): Promise<RenderedDocument> {
+    const startedAt = Date.now()
     const id = ++this.generation
     if (this.disposed) throw new RenderCancelledError()
     if (this.pending) this.fail(new RenderCancelledError())
@@ -57,7 +60,17 @@ export class RenderSupervisor {
     if (input.length > maxInputBytes && markdown !== '') throw new Error('Render input exceeds configured byte limit')
     const metadata = Buffer.from(JSON.stringify({ version: RENDER_PROTOCOL_VERSION, id, bytes: input.length, options }))
     if (metadata.length > MAX_RENDER_HEADER_BYTES) throw new Error('Render request header exceeds byte limit')
-    const worker = this.worker ?? this.start()
+    if (!this.launch) {
+      const [command, ...args] = this.options.command ?? renderWorkerCommand()
+      this.launch = this.options.sandbox === false
+        ? Promise.resolve({ command, args })
+        : sandboxLaunch([command, ...args])
+    }
+    const launch = await this.launch
+    if (this.disposed || id !== this.generation) throw new RenderCancelledError()
+    const remainingMs = (this.options.timeoutMs ?? RENDER_TIMEOUT_MS) - (Date.now() - startedAt)
+    if (remainingMs <= 0) throw new Error('Markdown rendering exceeded its startup deadline')
+    const worker = this.worker ?? this.start(launch)
     return new Promise<RenderedDocument>((resolve, reject) => {
       const pending: Pending = {
         id, worker, resolve, reject, bytes: 0, receiver: new DocumentReceiver(markdown.length),
@@ -68,7 +81,7 @@ export class RenderSupervisor {
           const document = pending.receiver.accept(value)
           if (document) pending.completed = document
         }),
-        timer: setTimeout(() => this.fail(new Error(`Markdown rendering exceeded the ${this.options.timeoutMs ?? RENDER_TIMEOUT_MS}ms deadline`)), this.options.timeoutMs ?? RENDER_TIMEOUT_MS),
+        timer: setTimeout(() => this.fail(new Error(`Markdown rendering exceeded the ${this.options.timeoutMs ?? RENDER_TIMEOUT_MS}ms deadline`)), remainingMs),
       }
       this.pending = pending
       worker.child.stdin.write(frame(metadata))
@@ -108,12 +121,12 @@ export class RenderSupervisor {
     }
   }
 
-  private start(): Worker {
-    const [command, ...args] = this.options.command ?? renderWorkerCommand()
-    const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+  private start(launch: RenderLaunch): Worker {
+    const child = spawnRenderProcess(launch)
     const worker = { child, closed: new Promise<void>((resolve) => child.once('close', () => resolve())) }
     this.worker = worker
     let diagnostics = 0
+    const failure = (message: string) => new Error(this.options.sandbox === false ? message : `${message}. ${SANDBOX_FAILURE}`)
     child.stdout.on('data', (chunk: Buffer) => {
       try {
         const pending = this.pending
@@ -136,13 +149,13 @@ export class RenderSupervisor {
       if (diagnostics > 8192) this.fail(new Error('Render worker exceeded diagnostic limit'))
     })
     child.stdin.on('error', () => {
-      if (this.worker === worker) this.fail(new Error('Render worker input closed'))
+      if (this.worker === worker) this.fail(failure('Render worker input closed'))
     })
     child.once('error', () => {
-      if (this.worker === worker) this.fail(new Error('Cannot start render worker'))
+      if (this.worker === worker) this.fail(failure('Cannot start render worker'))
     })
     child.once('close', () => {
-      if (this.worker === worker) this.fail(new Error('Render worker exited before completion'))
+      if (this.worker === worker) this.fail(failure('Render worker exited before completion'))
     })
     return worker
   }

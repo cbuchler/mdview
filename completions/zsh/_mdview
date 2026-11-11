@@ -5,6 +5,7 @@ _mdview() {
     '(-h --help)'{-h,--help}'[show help and exit]' \
     '--history[open recent documents]' \
     '--no-history[disable history reads and writes]' \
+    '--no-sandbox[explicitly permit unrestricted rendering]' \
     '--version[print version and exit]' \
     '--print-config[print a commented YAML template]' \
     '--init-config[write a config template if missing]' \

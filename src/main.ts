@@ -46,7 +46,7 @@ async function main(): Promise<void> {
     ? acquireKeyboardInput()
     : undefined
 
-  const renderer = new RenderSupervisor()
+  const renderer = new RenderSupervisor({ sandbox: !cli.noSandbox })
   const interruption = new AbortController()
   let receivedSignal: NodeJS.Signals | undefined
   const signalStatus = () => receivedSignal === 'SIGINT' ? 130 : receivedSignal === 'SIGHUP' ? 129 : 143

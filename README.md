@@ -11,6 +11,10 @@ Read Markdown in your terminal and return to where you left off.
 
 ## Install
 
+Current source builds require Linux sandbox dependencies before rendering. See
+[sandbox requirements and the explicit override](#limits-and-failure-recovery).
+Published release behavior is described in that release's notes.
+
 ### Linux binary
 
 Download `mdview-linux-x64.tar.gz` and `SHA256SUMS` from the same [GitHub release](https://github.com/cbuchler/mdview/releases/latest). Verify the archive, extract it, then install the binary:
@@ -162,6 +166,45 @@ If the passage is removed, mdview tries the following block, then the preceding 
 
 ## Limits and failure recovery
 
+Rendering requires a sandbox on every platform. The current backend supports Linux
+with Bubblewrap at `/usr/bin/bwrap`, `ldd` at `/usr/bin/ldd`, and permission to
+create unprivileged user namespaces. Bubblewrap must support `--disable-userns`
+and `--assert-userns-disabled`. The verified environment uses Bubblewrap 0.12.0
+on Linux x64. Install these system dependencies before using a standalone binary.
+
+On an unsupported platform, or when sandbox setup fails, mdview refuses to render.
+To explicitly accept unrestricted rendering for one invocation, use
+`mdview --no-sandbox README.md`. This override also applies to files opened from
+history during that invocation. It is not a saved configuration option, and mdview
+never retries without protection automatically. Help and version commands do not
+need a sandbox.
+
+<details>
+<summary>What the parser sandbox protects</summary>
+
+Local files, HTTP/HTTPS documents, and stdin use the same sandboxed worker. The
+parent reads documents and fetches URLs, then sends text through pipes. Local
+reload and remote reading therefore remain available without giving the parser
+access to the source filesystem or host network.
+
+The worker sees read-only runtime libraries and application assets, a private
+temporary directory, and isolated process and network namespaces. It receives
+three pipes and an explicit environment. User files, history, credentials, host
+sockets, and the terminal are not mounted. Capabilities are removed, privilege
+gains are blocked, and nested user namespaces are disabled. The launcher uses
+`ldd` only on the trusted runtime executable to locate individual library files.
+Source and Node builds also expose their application modules and dependencies
+read-only; do not store secrets among those runtime assets.
+
+These restrictions limit what code could access after a parser compromise. They
+do not prove that the parser cannot execute code. The worker can still produce
+incorrect output, and it shares the host kernel. There is no custom seccomp
+syscall filter or protection against kernel exploits. Resource limits are a
+separate requirement. Node, Bun source, and the standalone binary have been
+checked on Linux x64; no macOS or Windows sandbox backend is implemented.
+
+</details>
+
 Input defaults to a 2 MiB limit and an 8-second URL timeout. Invalid or timed-out reloads keep the last valid document visible. Character widths can vary with your terminal and font.
 
 Markdown rendering runs in a separate process with a deadline, but it has no hard OS memory limit. Large or complex input can exhaust available memory. Hard memory enforcement remains open in [issue #24](https://github.com/cbuchler/mdview/issues/24).
@@ -175,7 +218,11 @@ Markdown parsing and layout run in one child process in both interactive and pla
 
 Each result is limited to 16 MiB of protocol data, 8 MiB of decoded text, 50,000 lines, 50,000 source blocks, and 100,000 styled segments. Titles and error messages are limited to 4 KiB; child diagnostics are limited to 8 KiB. These fixed output limits also apply when `maxInputBytes` is increased. Source text travels as bounded UTF-8 bytes, without a JSON copy. Protocol records are checked before display. These limits bound communication and retained output; they do not bound parser memory.
 
-If the parent receives an uncatchable termination such as `SIGKILL`, a busy child can continue until it finishes its synchronous work or fails. Idle children exit when their input pipe closes. No systemd service or native launcher is required.
+Bubblewrap is configured to terminate the worker when its parent dies. Without
+sandboxing, a busy child can continue after an uncatchable parent `SIGKILL` until
+it finishes or fails. Idle children exit when their input pipe closes. Hard
+memory limits and complete abnormal-exit validation remain tracked in
+[issue #24](https://github.com/cbuchler/mdview/issues/24).
 
 </details>
 
@@ -193,6 +240,7 @@ Run `mdview --help` for help.
 | `--padding <number>` | Set left and right document padding |
 | `--wrap[=<boolean>]` / `--no-wrap` | Turn prose wrapping on or off |
 | `--watch` / `--no-watch` | Turn file reloads on or off |
+| `--no-sandbox` | Explicitly permit unrestricted rendering for this invocation |
 | `--history` | Open recent documents in a terminal |
 | `--no-history` | Disable history reads and writes |
 | `--config <path>` | Use a config file |

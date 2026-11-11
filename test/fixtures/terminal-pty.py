@@ -112,12 +112,19 @@ class Session:
         os.kill(self.proc.pid, signal.SIGWINCH)
 
     def worker(self):
-        path = pathlib.Path("/proc/%d/task/%d/children" % (self.proc.pid, self.proc.pid))
-        if path.exists():
-            for value in path.read_text().split():
-                command = pathlib.Path("/proc/%s/cmdline" % value)
-                if command.exists() and b"--internal-render-worker" in command.read_bytes():
-                    return int(value)
+        pending = [self.proc.pid]
+        while pending:
+            pid = pending.pop()
+            try:
+                children = pathlib.Path("/proc/%d/task/%d/children" % (pid, pid)).read_text().split()
+                for value in children:
+                    pending.append(int(value))
+                    command = pathlib.Path("/proc/%s/cmdline" % value).read_bytes().split(b"\0")
+                    # The Bubblewrap launcher also carries the worker argument but does not parse.
+                    if b"--internal-render-worker" in command and command[0].split(b"/")[-1] != b"bwrap":
+                        return int(value)
+            except FileNotFoundError:
+                pass
         return None
 
     def finish(self, status=0):

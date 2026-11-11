@@ -95,7 +95,7 @@ it('retains validated title/content after a hostile save, reflows that content o
     expect(app.frame()).not.toContain('Rejected');
     app.resize(40);
     await vi.waitFor(() => expect(app.frame().split('\n')[0].length).toBeLessThanOrEqual(40));
-    await vi.waitFor(() => expect(app.frame().split('\n').filter((line) => line.includes('Safe content')).length).toBeGreaterThan(2))
+    await vi.waitFor(() => expect(app.frame().split('\n').filter((line) => line.includes('Safe content')).length, app.frame()).toBeGreaterThan(2), { timeout: 3000 })
     expect(app.frame()).toContain('Markdown nesting exceeds');
     expect(app.frame()).toContain('# Original');
     expect(app.frame()).toContain('Safe content');
