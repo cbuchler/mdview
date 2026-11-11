@@ -1,7 +1,19 @@
 name: Distribution artifacts
 on:
   pull_request:
+    paths:
+      - 'src/**'
+      - 'native/**'
+      - 'scripts/build*.mjs'
+      - 'scripts/install*'
+      - 'scripts/package-release.mjs'
+      - 'test/install-binary.test.ts'
+      - 'package*.json'
+      - '.github/workflows/distribution.yml'
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
