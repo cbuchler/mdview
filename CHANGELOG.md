@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 — In preparation
+
+- Require sandboxed Markdown rendering on Linux and macOS. Refuse rendering when protection cannot start; allow an explicit `--no-sandbox` override for one invocation (#40).
+- Enforce a 256 MiB parser memory budget through native OS controls. Linux also limits tasks and disables swap for the worker group. Failed reloads keep the last valid document visible (#41).
+- Prepare standalone archives for Linux and macOS on x64 and ARM64, with checksums, shell completions, and an installer that verifies downloads before replacement (#42).
+- Prepare a Homebrew formula and native source-build and bottle checks. Tap publication remains a separate step (#43).
+- Simplify installation, usage, configuration, and runtime guidance in the README.
+
+Native CI targets Ubuntu 26.04 and macOS 26. Linux requires Bubblewrap and a systemd user manager with cgroup v2 memory and task controls. macOS uses private memory APIs and the deprecated Seatbelt interface; the initial archives are not notarized. The memory budget applies to the parser, not the whole viewer. `--no-sandbox` disables sandbox and OS memory protection.
+
 ## 0.2.1 — 2026-11-10
 
 - Restore rounded, theme-coloured borders and inner padding around the history header and footer. Each bar contains one text row; its top and bottom borders add two terminal rows (#36).
