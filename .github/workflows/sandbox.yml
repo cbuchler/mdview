@@ -1,7 +1,18 @@
 name: Parser sandbox
 on:
   pull_request:
+    paths:
+      - 'src/**'
+      - 'native/**'
+      - 'test/**'
+      - 'scripts/build*.mjs'
+      - 'package*.json'
+      - 'tsconfig*.json'
+      - '.github/workflows/sandbox.yml'
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
