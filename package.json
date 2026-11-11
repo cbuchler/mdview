@@ -20,6 +20,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "package:binaries": "node scripts/build-binary.mjs",
+    "package:release": "node scripts/package-release.mjs",
     "install:binary": "node scripts/install-binary.mjs"
   },
   "dependencies": {

@@ -1,0 +1,86 @@
+name: Distribution artifacts
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  archive:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-26.04, ubuntu-26.04-arm, macos-26, macos-26-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.4
+          cache: npm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Install Linux sandbox dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap gcc
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build && npm run package:binaries && npm run package:release
+      - run: npx vitest run test/install-binary.test.ts --maxWorkers=1
+      - name: Verify archived executable without Node or Bun on PATH
+        shell: bash
+        run: |
+          cd release
+          cat ./*.sha256 > SHA256SUMS
+          shasum -a 256 -c SHA256SUMS
+          archive=$(echo mdview-v*.tar.gz)
+          tar -xzf "$archive"
+          binary="$PWD/${archive%.tar.gz}/mdview"
+          tools=$(mktemp -d)
+          trap 'rm -rf "$tools"' EXIT
+          if [ "$RUNNER_OS" = Linux ]; then
+            for tool in bwrap systemd-run; do ln -s "$(command -v "$tool")" "$tools/$tool"; done
+          else
+            for tool in bash env rg; do ln -s "$(command -v "$tool")" "$tools/$tool"; done
+          fi
+          PATH="$tools" "$binary" --version
+          PATH="$tools" "$binary" --no-history ../README.md > rendered.txt
+          test -s rendered.txt
+          printf '# Piped artifact\n' | PATH="$tools" "$binary" --no-history - > piped.txt
+          grep -q 'Piped artifact' piped.txt
+      - name: Check artifact terminal input, resize and exit
+        if: runner.os == 'Linux'
+        run: python3 test/fixtures/terminal-pty.py "$PWD" "$(command -v node)" "$PWD/release/mdview"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdview-${{ matrix.os }}
+          path: |
+            release/mdview-v*.tar.gz
+            release/*.sha256
+          if-no-files-found: error
+  bundle:
+    needs: archive
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mdview-*
+          merge-multiple: true
+          path: release
+      - name: Assemble release inputs
+        run: |
+          cd release
+          test "$(ls ./*.tar.gz | wc -l)" -eq 4
+          cat ./*.sha256 | sort -k2 > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          cp ../scripts/install-release.sh .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdview-release-inputs
+          path: |
+            release/mdview-v*.tar.gz
+            release/SHA256SUMS
+            release/install-release.sh
+          if-no-files-found: error

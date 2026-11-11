@@ -1,4 +1,5 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto'
+import { chmod, symlink, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +48,13 @@ describe('install:binary helper', () => {
       if (process.platform !== 'win32') {
         expect(installedStat.mode & 0o777).toBe(0o755);
       }
+      await rm(fixture.installed)
+      await symlink(source, fixture.installed)
+      await expect(execFileAsync(process.execPath, [installer], {
+        cwd: fixture.workspace, env: { ...process.env, MDVIEW_INSTALL_DIR: fixture.destination },
+      })).rejects.toThrow('Use the package manager')
+      expect(await readFile(source)).toEqual(content)
+
     } finally {
       await rm(fixture.root, { recursive: true, force: true });
     }
@@ -72,3 +80,74 @@ describe('install:binary helper', () => {
     }
   });
 });
+
+
+const downloader = fileURLToPath(new URL('../scripts/install-release.sh', import.meta.url))
+
+async function downloadFixture() {
+  const fixture = await makeFixture()
+  const tools = path.join(fixture.root, 'tools')
+  const name = `mdview-v0.2.1-${process.platform}-${process.arch}`
+  const archive = `${name}.tar.gz`
+  await mkdir(tools)
+  await mkdir(path.join(fixture.workspace, name))
+  await writeFile(path.join(fixture.workspace, name, 'mdview'), '#!/bin/sh\nprintf "0.2.1\\n"\n', { mode: 0o755 })
+  await execFileAsync('tar', ['-czf', path.join(fixture.workspace, archive), '-C', fixture.workspace, name])
+  const hash = createHash('sha256').update(await readFile(path.join(fixture.workspace, archive))).digest('hex')
+  await writeFile(path.join(fixture.workspace, 'SHA256SUMS'), `${hash}  ${archive}\n`)
+  await writeFile(path.join(tools, 'curl'), `#!/bin/sh
+set -eu
+url= out=
+while [ "$#" -gt 0 ]; do
+  case "$1" in -o) out=$2; shift ;; https:*) url=$1 ;; esac
+  shift
+done
+case "$url" in
+  */latest) printf 'https://github.com/cbuchler/mdview/releases/tag/v0.2.1' ;;
+  *) cp "$MDVIEW_FIXTURE/\${url##*/}" "$out" ;;
+esac
+`, { mode: 0o755 })
+  const env = { ...process.env, PATH: tools + path.delimiter + process.env.PATH, MDVIEW_FIXTURE: fixture.workspace }
+  const run = () => execFileAsync('/bin/sh', [downloader, '--install-dir', fixture.destination], { env, timeout: 10000 })
+  return { ...fixture, tools, archive, env, run }
+}
+
+describe('release downloader', () => {
+  it('selects the latest stable archive, verifies it, and replaces an existing installation', async () => {
+    const fixture = await downloadFixture()
+    try {
+      await mkdir(fixture.destination, { recursive: true })
+      await writeFile(fixture.installed, 'old binary')
+      await fixture.run()
+      expect((await execFileAsync(fixture.installed, ['--version'])).stdout.trim()).toBe('0.2.1')
+      expect((await stat(fixture.installed)).mode & 0o777).toBe(0o755)
+    } finally { await rm(fixture.root, { recursive: true, force: true }) }
+  })
+
+  it.each(['checksum', 'download'])('preserves the installed bytes after a %s failure', async (failure) => {
+    const fixture = await downloadFixture()
+    try {
+      await mkdir(fixture.destination, { recursive: true })
+      await writeFile(fixture.installed, 'keep this binary')
+      if (failure === 'checksum') await writeFile(path.join(fixture.workspace, fixture.archive), 'corrupt archive')
+      else await rm(path.join(fixture.workspace, fixture.archive))
+      await expect(fixture.run()).rejects.toThrow(failure === 'checksum' ? 'checksum mismatch' : 'Cannot download')
+      expect(await readFile(fixture.installed, 'utf8')).toBe('keep this binary')
+    } finally { await rm(fixture.root, { recursive: true, force: true }) }
+  })
+
+  it('refuses managed symlinks and unsupported platforms before installation', async () => {
+    const fixture = await downloadFixture()
+    try {
+      await mkdir(fixture.destination, { recursive: true })
+      const managed = path.join(fixture.root, 'managed')
+      await writeFile(managed, 'managed binary')
+      await symlink(managed, fixture.installed)
+      await expect(fixture.run()).rejects.toThrow('Refusing to replace a symlink')
+      expect(await readFile(managed, 'utf8')).toBe('managed binary')
+      await writeFile(path.join(fixture.tools, 'uname'), '#!/bin/sh\necho Unsupported\n', { mode: 0o755 })
+      await expect(fixture.run()).rejects.toThrow('Supported platforms')
+      expect(await readFile(managed, 'utf8')).toBe('managed binary')
+    } finally { await rm(fixture.root, { recursive: true, force: true }) }
+  })
+})
