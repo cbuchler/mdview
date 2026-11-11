@@ -22,7 +22,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import subprocess
-          for mode in ['rss', 'address-space', 'jetsam']:
+          for mode in ['allocate', 'address-space', 'relative-as', 'jetsam', 'footprint', 'spawn']:
               result = subprocess.run(['/tmp/mdview-memory-probe', mode], capture_output=True, text=True, timeout=10)
               print(mode, 'exit=', result.returncode, result.stdout, result.stderr, flush=True)
           PY
