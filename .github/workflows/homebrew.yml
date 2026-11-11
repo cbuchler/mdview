@@ -1,0 +1,76 @@
+name: Homebrew bottles
+on:
+  pull_request:
+    paths:
+      - 'packaging/homebrew/**'
+      - 'scripts/prepare-homebrew.mjs'
+      - '.github/workflows/homebrew.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bottle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-26.04, ubuntu-26.04-arm, macos-26, macos-26-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_FROM_API: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: Homebrew/actions/setup-homebrew@master
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.4
+      - name: Install Linux host requirements
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap gcc
+      - name: Prepare immutable source formula
+        shell: bash
+        run: |
+          revision=$(git rev-parse HEAD)
+          curl --proto '=https' --proto-redir '=https' -fsSL "https://github.com/cbuchler/mdview/archive/$revision.tar.gz" -o /tmp/mdview-source.tar.gz
+          checksum=$(shasum -a 256 /tmp/mdview-source.tar.gz | cut -d ' ' -f 1)
+          brew tap-new --no-git cbuchler/tap
+          node scripts/prepare-homebrew.mjs "$revision" "$checksum" "$(brew --repository cbuchler/tap)"
+      - name: Build and test source installation
+        run: |
+          brew install --build-bottle cbuchler/tap/mdview
+          brew test --verbose cbuchler/tap/mdview
+          mdview --no-history README.md > /tmp/mdview-brew-source.txt
+      - name: Build bottle and verify a real pour
+        shell: bash
+        run: |
+          mkdir -p release/bottles
+          cd release/bottles
+          version=$(node -p 'require("../../package.json").version')
+          brew bottle --json --no-rebuild --root-url="https://github.com/cbuchler/homebrew-tap/releases/download/mdview-$version" cbuchler/tap/mdview
+          brew uninstall cbuchler/tap/mdview
+          brew install ./*.bottle.tar.gz
+          brew info --json=v2 cbuchler/tap/mdview > receipt.json
+          jq -e '.formulae[0].installed[0].poured_from_bottle == true' receipt.json
+          brew test --verbose cbuchler/tap/mdview
+          mdview --no-history ../../README.md > /tmp/mdview-brew-bottle.txt
+          test -f "$(brew --prefix)/share/zsh/site-functions/_mdview"
+          test -f "$(brew --prefix)/share/fish/vendor_completions.d/mdview.fish"
+          test -f "$(brew --prefix)/etc/bash_completion.d/mdview"
+          brew uninstall cbuchler/tap/mdview
+          test -z "$(brew list --versions mdview)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-${{ matrix.os }}
+          path: release/bottles/*
+          if-no-files-found: error
+      - name: Show Homebrew build logs
+        if: failure()
+        shell: bash
+        run: |
+          for directory in "$HOME/Library/Logs/Homebrew/mdview" "$HOME/.cache/Homebrew/Logs/mdview"; do
+            if [ -d "$directory" ]; then tail -n 80 "$directory"/*; fi
+          done
