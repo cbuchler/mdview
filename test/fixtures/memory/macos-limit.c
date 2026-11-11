@@ -24,7 +24,7 @@ int main(int argc, char **argv) {
     posix_spawnattr_init(&attr);
     int mb = !strcmp(argv[1], "raise-spawn") ? 384 : 96;
     int result = configure(&attr, 0x04 | 0x08, 0, mb, mb);
-    printf("spawn_limit_setup=%d uid=%d\n", result, getuid());
+    fprintf(stderr, "spawn_limit_setup=%d uid=%d\n", result, getuid());
     fflush(stdout);
     if (result) return 3;
     pid_t child;
@@ -34,11 +34,11 @@ int main(int argc, char **argv) {
     if (preload) setenv("DYLD_INSERT_LIBRARIES", preload, 1);
     result = posix_spawn(&child, child_args[0], NULL, &attr, child_args, environ);
     posix_spawnattr_destroy(&attr);
-    printf("spawn_result=%d\n", result);
+    fprintf(stderr, "spawn_result=%d\n", result);
     if (result) return 3;
     int status;
     if (waitpid(child, &status, 0) < 0) return 5;
-    printf("child_signal=%d child_exit=%d\n", WIFSIGNALED(status) ? WTERMSIG(status) : 0, WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+    fprintf(stderr, "child_signal=%d child_exit=%d\n", WIFSIGNALED(status) ? WTERMSIG(status) : 0, WIFEXITED(status) ? WEXITSTATUS(status) : -1);
     return 0;
   }
   if (!strcmp(argv[1], "fork") || !strcmp(argv[1], "respawn")) {

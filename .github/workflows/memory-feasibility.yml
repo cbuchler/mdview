@@ -43,3 +43,7 @@ jobs:
               result = subprocess.run(['/tmp/mdview-memory-probe', 'spawn', 'command', shutil.which(runtime), '-e', guarded], env=restricted, capture_output=True, text=True, timeout=10)
               print('restricted', runtime, result.returncode, result.stdout, result.stderr, flush=True)
           PY
+      - run: npm ci
+      - run: npm run build && npm run package:binaries
+      - name: Compare real renderer output under native memory limits
+        run: MDVIEW_BUN="$(command -v bun)" MDVIEW_PROBE_PRELOAD=/tmp/mdview-deny-process.dylib node --import tsx test/fixtures/memory/render-probe.ts
