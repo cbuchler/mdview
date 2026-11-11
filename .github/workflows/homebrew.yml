@@ -42,6 +42,9 @@ jobs:
           checksum=$(shasum -a 256 /tmp/mdview-source.tar.gz | cut -d ' ' -f 1)
           brew tap-new --no-git cbuchler/tap
           node scripts/prepare-homebrew.mjs "$revision" "$checksum" "$(brew --repository cbuchler/tap)"
+      - name: Check Linux executable requirements
+        if: runner.os == 'Linux'
+        run: brew ruby packaging/homebrew/test-requirement.rb "$(brew --repository cbuchler/tap)/Formula/mdview.rb"
       - name: Build and test source installation
         run: |
           brew install --build-bottle cbuchler/tap/mdview
@@ -69,6 +72,15 @@ jobs:
             for tool in bash env; do ln -s "$(command -v "$tool")" "$tools/$tool"; done
           fi
           PATH="$tools" "$binary" --no-history ../../README.md > /tmp/mdview-bottle-no-runtime.txt
+          test -s /tmp/mdview-bottle-no-runtime.txt
+          if [ "$RUNNER_OS" = Linux ]; then
+            if XDG_RUNTIME_DIR="$tools/no-session" DBUS_SESSION_BUS_ADDRESS="unix:path=$tools/no-bus" \
+              PATH="$tools" "$binary" --no-history ../../README.md > /tmp/mdview-refused.txt 2> /tmp/mdview-refused.err; then
+              echo 'Rendering unexpectedly succeeded without a systemd user session' >&2
+              exit 1
+            fi
+            test ! -s /tmp/mdview-refused.txt
+          fi
           test -f "$(brew --prefix)/share/zsh/site-functions/_mdview"
           test -f "$(brew --prefix)/share/fish/vendor_completions.d/mdview.fish"
           test -f "$(brew --prefix)/etc/bash_completion.d/mdview"

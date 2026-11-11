@@ -6,13 +6,16 @@ Do not advertise `brew install cbuchler/tap/mdview` until the source and bottles
 are available and the public installation has passed.
 
 The formula template is [mdview.rb.in](../packaging/homebrew/mdview.rb.in).
-It builds from immutable source with locked npm dependencies and a checksummed
-Bun resource. Node and Bun are build tools, not installed runtime dependencies.
+It builds from immutable source with locked npm dependencies and checksummed
+Node and Bun resources. These build tools are not installed runtime dependencies.
+The Node resource avoids relying on Homebrew's macOS Intel dependency bottles.
 Bottles contain the standalone executable, notices and shell completions.
 
-Linux requires distro Bubblewrap at `/usr/bin/bwrap` and systemd user-session
-support at `/usr/bin/systemd-run`. The formula checks those prerequisites;
-mdview verifies the active memory controls before rendering. The tap does not
+Linux requires `bwrap` and `systemd-run` on absolute `PATH` entries, plus
+`/usr/bin/ldd`. The formula follows mdview's executable lookup but checks
+availability only. A successful installation does not prove that namespaces,
+the systemd user session, or cgroup v2 memory/task controls work on that host.
+mdview verifies the active controls before rendering. The tap does not
 change AppArmor policy or install/start a privileged service. On macOS, source
 builds need Apple command-line tools. The initial validation targets macOS 26.
 
@@ -21,6 +24,15 @@ setup. The formula therefore uses explicit `--no-sandbox` only for its fixed
 test document. Separate native CI checks render through the installed source
 build and poured bottle with default protection outside that test wrapper.
 The formula test alone is not containment evidence.
+
+After installation, check protected rendering in your normal login session:
+
+```sh
+mdview --no-history /path/to/document.md > /dev/null
+```
+
+Use an existing Markdown file. A failed check requires fixing the reported host
+prerequisite; do not add `--no-sandbox` to treat it as a successful protection check.
 
 ## Prepare a formula update
 
