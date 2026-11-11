@@ -245,11 +245,22 @@ it.skipIf(!['linux', 'darwin'].includes(process.platform)).each([process.execPat
 }, 15000)
 
 it.skipIf(process.platform !== 'darwin')('rejects a macOS executable that does not load the memory guard', async () => {
-  // Apple platform executables discard DYLD injection. A clean exit is not readiness.
-  const launch = await sandbox.sandboxLaunch(['/usr/bin/true'])
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'mdview-hardened-'))
+  let launch: sandbox.RenderLaunch | undefined
   try {
+    const source = path.join(directory, 'probe.c')
+    const binary = path.join(directory, 'probe')
+    await writeFile(source, 'int main(void) { return 0; }\n')
+    await runFile('cc', [source, '-o', binary])
+    // Hardened runtime without a DYLD entitlement must discard the guard injection.
+    await runFile('/usr/bin/codesign', ['--force', '--sign', '-', '--options', 'runtime', binary])
+    await runFile(binary)
+    launch = await sandbox.sandboxLaunch([binary])
     await expect(runFile(launch.command, launch.args, {
       env: launch.env, cwd: launch.cwd, timeout: 8000,
     })).rejects.toThrow('Memory protection readiness was not verified')
-  } finally { await launch.cleanup?.() }
-}, 10000)
+  } finally {
+    await launch?.cleanup?.()
+    await rm(directory, { recursive: true, force: true })
+  }
+}, 15000)
