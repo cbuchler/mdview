@@ -30,6 +30,8 @@ int main(int argc, char **argv) {
     pid_t child;
     char *args[] = { argv[0], argc > 2 ? argv[2] : "allocate", NULL };
     char **child_args = argc > 3 && !strcmp(argv[2], "command") ? &argv[3] : args;
+    const char *preload = getenv("MDVIEW_PROBE_PRELOAD");
+    if (preload) setenv("DYLD_INSERT_LIBRARIES", preload, 1);
     result = posix_spawn(&child, child_args[0], NULL, &attr, child_args, environ);
     posix_spawnattr_destroy(&attr);
     printf("spawn_result=%d\n", result);
