@@ -15,6 +15,7 @@ export interface CliOptions {
   configPath?: string;
   history?: boolean
   noHistory?: boolean
+  noSandbox?: boolean
   help?: boolean;
   version?: boolean;
   printConfig?: boolean;

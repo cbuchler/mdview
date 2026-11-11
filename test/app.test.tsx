@@ -1,3 +1,4 @@
+import { RENDER_TIMEOUT_MS } from '../src/render-protocol.js'
 import { mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -44,7 +45,7 @@ it('reflows on resize without input and reloads saved and atomically replaced fi
     }
   }
   try {
-    await vi.waitFor(() => expect(codeBorder()?.length).toBe(98), { timeout: 3000 })
+    await vi.waitFor(() => expect(codeBorder()?.length).toBe(98), { timeout: RENDER_TIMEOUT_MS + 500 })
     expectBars()
     stdout.columns = 40;
     stdout.rows = 24;
@@ -65,10 +66,10 @@ it('reflows on resize without input and reloads saved and atomically replaced fi
     expect(frame.split('\n')).toHaveLength(30);
 
     await writeFile(file, markdown.replace('Original', 'Saved'));
-    await vi.waitFor(() => expect(frame).toContain('# Saved'), { timeout: 3000 });
+    await vi.waitFor(() => expect(frame).toContain('# Saved'), { timeout: RENDER_TIMEOUT_MS + 500 });
     await writeFile(`${file}.tmp`, markdown.replace('Original', 'Replaced'));
     await rename(`${file}.tmp`, file);
-    await vi.waitFor(() => expect(frame).toContain('# Replaced'), { timeout: 3000 });
+    await vi.waitFor(() => expect(frame).toContain('# Replaced'), { timeout: RENDER_TIMEOUT_MS + 500 });
   } finally {
     app.unmount();
     app.cleanup();
@@ -77,7 +78,7 @@ it('reflows on resize without input and reloads saved and atomically replaced fi
     await rm(directory, { recursive: true, force: true });
   }
   expect(stdout.listenerCount('resize')).toBe(initialListeners);
-}, 10000);
+}, 15000);
 
 it('keeps the latest scrolled passage through pending reflow and insertions above the viewport', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'mdview-anchor-'))
@@ -108,7 +109,7 @@ it('keeps the latest scrolled passage through pending reflow and insertions abov
   })
   const top = () => frame.split('\n')[3]?.trim()
   try {
-    await vi.waitFor(() => expect(top()).toContain('Passage0'), { timeout: 3000 })
+    await vi.waitFor(() => expect(top()).toContain('Passage0'), { timeout: RENDER_TIMEOUT_MS + 500 })
     for (let index = 0; index < 20; index++) {
       stdin.write('j')
       await new Promise((resolve) => setTimeout(resolve, 5))
@@ -130,7 +131,7 @@ it('keeps the latest scrolled passage through pending reflow and insertions abov
     await vi.waitFor(() => {
       expect(frame.split('\n')[1]).toContain('Inserted')
       expect(top()).toContain('Passage11')
-    }, { timeout: 3000 })
+    }, { timeout: RENDER_TIMEOUT_MS + 500 })
     stdout.columns = 100
     stdout.emit('resize')
     await vi.waitFor(() => expect(top()).toContain('Passage11 has enough words to wrap across several lines'))
@@ -138,7 +139,7 @@ it('keeps the latest scrolled passage through pending reflow and insertions abov
     await vi.waitFor(() => {
       expect(top()).toBe('# Short')
       expect(frame).toContain('Only paragraph')
-    }, { timeout: 3000 })
+    }, { timeout: RENDER_TIMEOUT_MS + 500 })
   } finally {
     release?.()
     renderSpy.mockRestore()
@@ -149,4 +150,4 @@ it('keeps the latest scrolled passage through pending reflow and insertions abov
     stdout.destroy()
     await rm(directory, { recursive: true, force: true })
   }
-}, 10000)
+}, 15000)

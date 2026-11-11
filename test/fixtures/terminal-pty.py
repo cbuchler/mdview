@@ -33,6 +33,7 @@ class Session:
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 14, 80, 0, 0))
         self.before = termios.tcgetattr(self.slave)
         self.output = b""
+        self.runtime = pathlib.Path(runtime).resolve()
 
         def setup():
             # An inherited PTY fd is not itself a controlling terminal.
@@ -112,18 +113,30 @@ class Session:
         os.kill(self.proc.pid, signal.SIGWINCH)
 
     def worker(self):
-        path = pathlib.Path("/proc/%d/task/%d/children" % (self.proc.pid, self.proc.pid))
-        if path.exists():
-            for value in path.read_text().split():
-                command = pathlib.Path("/proc/%s/cmdline" % value)
-                if command.exists() and b"--internal-render-worker" in command.read_bytes():
-                    return int(value)
+        pending = [self.proc.pid]
+        while pending:
+            pid = pending.pop()
+            try:
+                children = pathlib.Path("/proc/%d/task/%d/children" % (pid, pid)).read_text().split()
+                for value in children:
+                    pending.append(int(value))
+                    command = pathlib.Path("/proc/%s/cmdline" % value).read_bytes().split(b"\0")
+                    # Sandbox helpers carry the same arguments but do not parse Markdown.
+                    if b"--internal-render-worker" in command and pathlib.Path(os.fsdecode(command[0])).resolve() == self.runtime:
+                        return int(value)
+            except FileNotFoundError:
+                pass
         return None
 
     def finish(self, status=0):
         actual = self.proc.wait(timeout=3)
         assert actual == status, (actual, self.output[-6000:])
-        self.drain(0)
+        # Exit output can span several PTY reads after a resize or busy render.
+        while select.select([self.master], [], [], 0)[0]:
+            previous_size = len(self.output)
+            self.drain(0)
+            if len(self.output) == previous_size:
+                break
         assert termios.tcgetattr(self.slave) == self.before, "terminal flags were not restored"
         assert b"Raw mode is not supported" not in self.output
 
@@ -308,10 +321,11 @@ with tempfile.TemporaryDirectory(prefix="mdview-terminal-") as directory:
         session = Session([str(file)], config, terminal_stdin=True, runtime=runtime, history=True)
         try:
             session.wait(lambda frame: top(frame).startswith("Passage0 "))
-            for _ in range(20):
-                previous_frame = session.frame()
+            for step in range(20):
                 session.key("j")
-                session.wait(lambda frame: frame != previous_frame and "q quit" in frame)
+                expected_top = "" if step % 2 == 0 else "Passage%d " % ((step + 1) // 2)
+                # Header updates can produce a new frame before the key changes the viewport.
+                session.wait(lambda frame: top(frame) == "" if expected_top == "" else top(frame).startswith(expected_top))
             session.wait(lambda frame: top(frame).startswith("Passage10 "))
             session.key("h")
             session.wait(lambda frame: "Recent documents" in frame and "Recent documents · 1" in frame)
@@ -384,6 +398,24 @@ with tempfile.TemporaryDirectory(prefix="mdview-terminal-") as directory:
             assert not pathlib.Path("/proc/%d" % busy).exists(), "render child survived SIGTERM"
             assert b"\x1b[?25h" in session.output[shutdown_start:], "cursor was not restored on shutdown"
             RESULTS.append({"case": "SIGTERM during render " + pathlib.Path(runtime).name, "childReaped": True, "rawRestored": True})
+        finally:
+            session.close()
+        file.write_text("# PARENT_READY\n\nReady", encoding="utf-8")
+        session = Session([str(file), "--refresh", "20ms"], config, terminal_stdin=True, runtime=runtime)
+        try:
+            session.wait(lambda frame: "# PARENT_READY" in frame)
+            busy = session.worker()
+            assert busy, "persistent worker was not found"
+            before_ticks = cpu_ticks(busy)
+            file.write_text(expensive, encoding="utf-8")
+            session.wait(lambda frame: cpu_ticks(busy) >= before_ticks + 5)
+            os.kill(session.proc.pid, signal.SIGKILL)
+            assert session.proc.wait(timeout=3) == -signal.SIGKILL
+            deadline = time.monotonic() + 5
+            while pathlib.Path("/proc/%d" % busy).exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert not pathlib.Path("/proc/%d" % busy).exists(), "render child survived parent SIGKILL"
+            RESULTS.append({"case": "parent SIGKILL " + pathlib.Path(runtime).name, "childReaped": True})
         finally:
             session.close()
     file.write_text(document, encoding="utf-8")

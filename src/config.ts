@@ -56,6 +56,10 @@ export function parseCliArgs(argv: string[]): CliOptions {
       case '--no-history':
         options.noHistory = true
         break
+      case '--no-sandbox':
+        if (inlineValue !== undefined) throw new Error('--no-sandbox does not take a value')
+        options.noSandbox = true
+        break
       case '--version':
         options.version = true;
         break;
@@ -179,6 +183,8 @@ export function printHelp(): string {
     '  --version',
     '  --history',
     '  --no-history',
+    '  --no-sandbox',
+    '    Explicitly permit unrestricted rendering. Sandboxing is required by default.',
     '',
     'Config: ~/.config/mdview/config.yml',
     `Themes: ${listThemeNames().join(', ')}`,

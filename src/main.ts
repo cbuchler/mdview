@@ -46,7 +46,7 @@ async function main(): Promise<void> {
     ? acquireKeyboardInput()
     : undefined
 
-  const renderer = new RenderSupervisor()
+  const renderer = new RenderSupervisor({ sandbox: !cli.noSandbox })
   const interruption = new AbortController()
   let receivedSignal: NodeJS.Signals | undefined
   const signalStatus = () => receivedSignal === 'SIGINT' ? 130 : receivedSignal === 'SIGHUP' ? 129 : 143
@@ -99,7 +99,9 @@ async function main(): Promise<void> {
 
 const run = process.argv[2] === '--internal-render-worker'
   ? import('./render-worker.js').then(({ runRenderWorker }) => runRenderWorker())
-  : main()
+  : process.argv[2] === '--internal-sandbox-launcher'
+    ? import('./sandbox-launcher.js').then(({ runSandboxLauncher }) => runSandboxLauncher(JSON.parse(process.argv[3]), process.argv[4]))
+    : main()
 
 run.catch((error) => {
   process.stderr.write(`${formatCliError(error)}\n`)

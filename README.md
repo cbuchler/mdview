@@ -11,6 +11,10 @@ Read Markdown in your terminal and return to where you left off.
 
 ## Install
 
+Current source builds use Bubblewrap on Linux and Anthropic Sandbox Runtime on macOS. See
+[sandbox requirements and the explicit override](#limits-and-failure-recovery).
+Published release behavior is described in that release's notes.
+
 ### Linux binary
 
 Download `mdview-linux-x64.tar.gz` and `SHA256SUMS` from the same [GitHub release](https://github.com/cbuchler/mdview/releases/latest). Verify the archive, extract it, then install the binary:
@@ -162,6 +166,76 @@ If the passage is removed, mdview tries the following block, then the preceding 
 
 ## Limits and failure recovery
 
+Rendering requires a sandbox on every platform. Linux uses Bubblewrap with a
+seccomp filter installed before the parser starts. macOS uses
+[@anthropic-ai/sandbox-runtime](https://github.com/anthropics/sandbox-runtime),
+pinned to version 0.0.82. Windows is not supported.
+
+- Linux requires Bubblewrap with user namespace support and `/usr/bin/ldd`.
+  The parser needs no nested namespace helper or proxy. Host security policy
+  must permit Bubblewrap itself; mdview does not change that policy. Ubuntu
+  24.04 arm64 CI blocked Bubblewrap network-namespace setup before parser
+  startup. That configuration is not validated as supported.
+- macOS requires the system `/usr/bin/sandbox-exec` and `/bin/bash`. It uses
+  Apple's Seatbelt profiles without an Endpoint Security entitlement. Custom
+  profiles remain an unsupported Apple interface.
+- Linux x64 and arm64 builds generate the seccomp filter internally. No native
+  helper or compiler is needed at runtime.
+
+Native CI checks cover Linux x64 and macOS arm64 with Node and Bun, including
+the compiled executable without Node or Bun on `PATH`. Other architectures
+and OS versions need their own validation. A host that blocks the required
+Linux namespaces will still refuse rendering even if these CI checks pass.
+
+On an unsupported platform, or when sandbox setup fails, mdview refuses to render.
+To explicitly accept unrestricted rendering for one invocation, use
+`mdview --no-sandbox README.md`. This override also applies to files opened from
+history during that invocation. It is not a saved configuration option, and mdview
+never retries without protection automatically. Help and version commands do not
+need a sandbox.
+
+<details>
+<summary>What the parser sandbox protects</summary>
+
+Local files, HTTP/HTTPS documents, and stdin use the same sandboxed worker. The
+parent reads documents and fetches URLs, then sends text through pipes. Local
+reload and remote reading therefore remain available without giving the parser
+access to the source filesystem or host network.
+
+The worker receives three pipes and a clean environment. Filesystem reads start
+denied, with exceptions for read-only system/runtime libraries, application
+modules and dependencies, and a private writable work directory. Homebrew
+runtime aliases are exposed where needed; macOS Homebrew installations also
+expose the Cellar read-only for linked libraries. macOS also exposes its system
+ICU data for Unicode text layout. Do not store secrets among
+runtime assets. Bun source execution on macOS uses a private read-only copy of
+the application files so module lookup does not expose the checkout. Document
+paths, history storage and credential files are not granted to the worker.
+
+On Linux, Bubblewrap isolates the worker's process and network namespaces.
+Its seccomp filter blocks socket creation, io_uring and namespace changes.
+On macOS, Seatbelt applies filesystem, network and process restrictions. Its
+baseline still allows some OS services; these profiles are not identical to
+Linux namespaces and should not be described as equivalent isolation.
+
+On macOS, Anthropic's proxy runs in a separate launcher process. Its domain allowlist is
+empty and strict, with no approval callback, so every destination is denied.
+The worker receives no proxy environment variables. The parent still fetches
+remote documents itself. Proxy availability is an additional local attack
+surface; it does not grant permission to fetch document links.
+
+Mdview rejects missing dependencies and security warnings. Quit, cancellation
+and timeout kill the launcher's process group; Linux also uses Bubblewrap's
+parent-death behavior. Session files are removed when the supervisor is disposed.
+
+These restrictions limit what code could access after a parser compromise. They
+do not prove that the parser cannot execute code. The worker can still produce
+incorrect output, and it shares the host kernel. The seccomp filter is not a
+complete syscall allowlist and there is no guarantee against kernel exploits.
+Resource limits remain a separate requirement.
+
+</details>
+
 Input defaults to a 2 MiB limit and an 8-second URL timeout. Invalid or timed-out reloads keep the last valid document visible. Character widths can vary with your terminal and font.
 
 Markdown rendering runs in a separate process with a deadline, but it has no hard OS memory limit. Large or complex input can exhaust available memory. Hard memory enforcement remains open in [issue #24](https://github.com/cbuchler/mdview/issues/24).
@@ -175,7 +249,14 @@ Markdown parsing and layout run in one child process in both interactive and pla
 
 Each result is limited to 16 MiB of protocol data, 8 MiB of decoded text, 50,000 lines, 50,000 source blocks, and 100,000 styled segments. Titles and error messages are limited to 4 KiB; child diagnostics are limited to 8 KiB. These fixed output limits also apply when `maxInputBytes` is increased. Source text travels as bounded UTF-8 bytes, without a JSON copy. Protocol records are checked before display. These limits bound communication and retained output; they do not bound parser memory.
 
-If the parent receives an uncatchable termination such as `SIGKILL`, a busy child can continue until it finishes its synchronous work or fails. Idle children exit when their input pipe closes. No systemd service or native launcher is required.
+The sandbox launcher checks its OS parent identity every 50 ms to detect
+UI-parent loss, including SIGKILL, independently of a busy parser. Detection
+can be delayed by OS scheduling. It removes session files and
+kills the launcher's process group. This does not restore a terminal after
+SIGKILL or cover killing the launcher itself, OS failure, or `--no-sandbox`.
+
+Hard memory limits and cleanup outside this sandboxed parent-loss case remain tracked in
+[issue #24](https://github.com/cbuchler/mdview/issues/24).
 
 </details>
 
@@ -193,6 +274,7 @@ Run `mdview --help` for help.
 | `--padding <number>` | Set left and right document padding |
 | `--wrap[=<boolean>]` / `--no-wrap` | Turn prose wrapping on or off |
 | `--watch` / `--no-watch` | Turn file reloads on or off |
+| `--no-sandbox` | Explicitly permit unrestricted rendering for this invocation |
 | `--history` | Open recent documents in a terminal |
 | `--no-history` | Disable history reads and writes |
 | `--config <path>` | Use a config file |

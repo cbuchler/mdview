@@ -1,3 +1,4 @@
+import { RENDER_TIMEOUT_MS } from '../src/render-protocol.js'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import http from 'node:http'
@@ -53,7 +54,7 @@ it('preserves the passage through history navigation and cancels abandoned URL r
   })
   const top = () => frame.split('\n')[3]?.trim()
   try {
-    await vi.waitFor(() => expect(top()).toContain('Passage0'), { timeout: 3000 })
+    await vi.waitFor(() => expect(top()).toContain('Passage0'), { timeout: RENDER_TIMEOUT_MS + 500 })
     for (let index = 0; index < 20; index++) { stdin.write('j'); await new Promise((resolve) => setTimeout(resolve, 5)) }
     await vi.waitFor(() => expect(top()).toContain('Passage10'))
     stdin.write('h')
@@ -73,7 +74,7 @@ it('preserves the passage through history navigation and cancels abandoned URL r
     await vi.waitFor(() => {
       expect(top()).toContain('Passage10')
       expect(frame).toContain('a narrow terminal.')
-    }, { timeout: 3000 })
+    }, { timeout: RENDER_TIMEOUT_MS + 500 })
     await history.flush()
     expect((await history.read())[0].anchor).toBeDefined()
     stdin.write('h')
@@ -103,7 +104,7 @@ it('preserves the passage through history navigation and cancels abandoned URL r
     stdout.destroy()
     await rm(root, { recursive: true, force: true })
   }
-}, 10000)
+}, 15000)
 
 it('marks missing files, removes entries, and requires confirmation to clear history', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'mdview-history-picker-'))
@@ -182,4 +183,4 @@ it('marks missing files, removes entries, and requires confirmation to clear his
     stdout.destroy()
     await rm(root, { recursive: true, force: true })
   }
-}, 10000)
+}, 15000)

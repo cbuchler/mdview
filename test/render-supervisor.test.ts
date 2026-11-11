@@ -37,7 +37,7 @@ it('renders and reflows in the real worker, and recovers after invalid Markdown'
 it('times out a CPU-bound child, reaps it, and starts a healthy replacement', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'mdview-worker-'))
   const pidFile = path.join(directory, 'pid')
-  const renderer = new RenderSupervisor({ command: [process.execPath, fixture, 'normal', pidFile], timeoutMs: 300 })
+  const renderer = new RenderSupervisor({ sandbox: false, command: [process.execPath, fixture, 'normal', pidFile], timeoutMs: 300 })
   try {
     await expect(renderer.render('busy', options, maxBytes)).rejects.toThrow('deadline')
     const pid = Number(await readFile(pidFile, 'utf8'))
@@ -54,7 +54,7 @@ it('times out a CPU-bound child, reaps it, and starts a healthy replacement', as
 it('supersedes busy work without letting old requests overwrite the latest, and awaits disposal', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'mdview-cancel-'))
   const pidFile = path.join(directory, 'pid')
-  const renderer = new RenderSupervisor({ command: [process.execPath, fixture, 'normal', pidFile] })
+  const renderer = new RenderSupervisor({ sandbox: false, command: [process.execPath, fixture, 'normal', pidFile] })
   try {
     const first = renderer.render('busy', options, maxBytes)
     const cancelled = expect(first).rejects.toBeInstanceOf(RenderCancelledError)
@@ -94,7 +94,7 @@ it.each([
 ])('rejects %s worker output and reaps the child', async (mode, message) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'mdview-bad-worker-'))
   const pidFile = path.join(directory, 'pid')
-  const renderer = new RenderSupervisor({ command: [process.execPath, fixture, mode, pidFile], timeoutMs: 1000 })
+  const renderer = new RenderSupervisor({ sandbox: false, command: [process.execPath, fixture, mode, pidFile], timeoutMs: 1000 })
   try {
     await expect(renderer.render('input', options, maxBytes)).rejects.toThrow(message)
     const pid = Number(await readFile(pidFile, 'utf8'))
@@ -121,7 +121,7 @@ it('bounds decoded lines, segments, and text even when individual records fit th
 })
 
 it('reports worker startup failure without waiting for the render deadline', async () => {
-  const renderer = new RenderSupervisor({ command: ['/nonexistent/mdview-render-worker'] })
+  const renderer = new RenderSupervisor({ sandbox: false, command: ['/nonexistent/mdview-render-worker'] })
   try {
     await expect(renderer.render('input', options, maxBytes)).rejects.toThrow('Cannot start render worker')
   } finally {

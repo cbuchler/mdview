@@ -11,6 +11,7 @@
   },
   "files": [
     "dist",
+    "THIRD_PARTY_NOTICES.md",
     "completions"
   ],
   "scripts": {
@@ -18,10 +19,11 @@
     "dev": "tsx src/main.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "package:binaries": "bun build src/main.ts --compile --outfile release/mdview",
+    "package:binaries": "node scripts/build-binary.mjs",
     "install:binary": "node scripts/install-binary.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.82",
     "chokidar": "^4.0.3",
     "ink": "^5.2.1",
     "react": "^18.3.1",
