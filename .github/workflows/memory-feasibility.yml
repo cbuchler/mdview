@@ -1,5 +1,9 @@
 name: Memory feasibility
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/memory-feasibility.yml'
+      - 'test/fixtures/memory/**'
   workflow_dispatch:
 permissions:
   contents: read
