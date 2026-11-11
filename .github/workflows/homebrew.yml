@@ -60,6 +60,15 @@ jobs:
           jq -e '.formulae[0].installed[0].poured_from_bottle == true' receipt.json
           mdview --no-history ../../README.md > /tmp/mdview-brew-bottle.txt
           brew test --verbose cbuchler/tap/mdview
+          binary="$(brew --prefix)/bin/mdview"
+          tools=$(mktemp -d)
+          trap 'rm -rf "$tools"' EXIT
+          if [ "$RUNNER_OS" = Linux ]; then
+            for tool in bwrap systemd-run; do ln -s "$(command -v "$tool")" "$tools/$tool"; done
+          else
+            for tool in bash env; do ln -s "$(command -v "$tool")" "$tools/$tool"; done
+          fi
+          PATH="$tools" "$binary" --no-history ../../README.md > /tmp/mdview-bottle-no-runtime.txt
           test -f "$(brew --prefix)/share/zsh/site-functions/_mdview"
           test -f "$(brew --prefix)/share/fish/vendor_completions.d/mdview.fish"
           test -f "$(brew --prefix)/etc/bash_completion.d/mdview"
