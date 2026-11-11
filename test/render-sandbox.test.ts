@@ -71,9 +71,9 @@ it.skipIf(!['linux', 'darwin'].includes(process.platform))('denies host files, s
           process: denied(() => process.kill(${process.pid}, 0)),
           tcp: await cannotConnect({ host: '127.0.0.1', port: ${port} }),
           unix: await cannotConnect({ path: ${JSON.stringify(socket)} }),
-          descendant: require('node:child_process').spawnSync(process.execPath, ['-e',
+          descendant: (() => { const result = require('node:child_process').spawnSync(process.execPath, ['-e',
             'try { require("node:fs").readFileSync(' + ${JSON.stringify(JSON.stringify(secret))} + '); process.exit(2) } catch { process.exit(0) }'
-          ]).status === 0,
+          ]); return process.platform === 'darwin' ? result.error?.code === 'EPERM' : result.status === 0 })(),
         }
         if (process.platform === 'linux') {
           const status = fs.readFileSync('/proc/self/status', 'utf8')
@@ -204,5 +204,78 @@ it.skipIf(!['linux', 'darwin'].includes(process.platform)).each([undefined, ...(
       try { process.kill(-info.pid, 'SIGKILL') } catch {}
       await rm(info.directory, { recursive: true, force: true })
     }
+  }
+}, 15000)
+
+
+it.skipIf(!['linux', 'darwin'].includes(process.platform)).each([process.execPath, ...(process.env.MDVIEW_TEST_BUN ? [process.env.MDVIEW_TEST_BUN] : [])])('stops retained external allocations and permits a later render (%s)', async (runtime) => {
+  // Bound the baseline too: a broken limit must not turn this probe into host exhaustion.
+  const code = `
+    console.log('allocation-started')
+    const retained = []
+    for (let i = 0; i < 384; i++) {
+      const buffer = Buffer.alloc(1024 * 1024, 1)
+      retained.push(buffer)
+    }
+    console.log('allocation-completed')
+  `
+  expect((await runFile(runtime, ['-e', code])).stdout).toContain('allocation-completed')
+  const launch = await sandbox.sandboxLaunch([runtime, '-e', code])
+  try {
+    const result = await new Promise<{ output: string, error: string, status: number | null }>((resolve, reject) => {
+      const child = sandbox.spawnRenderProcess(launch)
+      let output = '', error = ''
+      const timer = setTimeout(() => { sandbox.stopRenderProcess(child, true); reject(new Error('Memory probe timed out')) }, 8000)
+      child.stdout.on('data', (chunk) => { output += chunk })
+      child.stderr.on('data', (chunk) => { error += chunk })
+      child.once('error', reject)
+      child.once('close', (status) => { clearTimeout(timer); resolve({ output, error, status }) })
+      child.stdin.end()
+    })
+    expect(result.output, result.error).toContain('allocation-started')
+    expect(result.output).not.toContain('allocation-completed')
+    expect(result.status).not.toBe(0)
+    const renderer = new RenderSupervisor()
+    try {
+      expect((await renderer.render('# Recovered after memory pressure', {
+        width: 80, padding: 0, wrap: true, theme: 'github', syntaxTheme: 'dracula', sourceName: 'test',
+      }, 1000)).title).toBe('Recovered after memory pressure')
+    } finally { await renderer.dispose() }
+  } finally { await launch.cleanup?.() }
+}, 15000)
+
+it.skipIf(process.platform !== 'darwin')('rejects missing macOS guard readiness before delivering document bytes', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'mdview-missing-guard-'))
+  let launch: sandbox.RenderLaunch | undefined
+  try {
+    const source = path.join(directory, 'empty.c')
+    const library = path.join(directory, 'empty.dylib')
+    await writeFile(source, 'void empty(void) {}\n')
+    await runFile('cc', ['-dynamiclib', source, '-o', library])
+    const preload = path.join(directory, 'preload.mjs')
+    const helper = await readFile(path.resolve('dist/native/mdview-memory'))
+    // A valid dylib without a constructor reproduces a loader that omits guard setup.
+    await writeFile(preload, 'globalThis.mdviewNativeAssets = ' + JSON.stringify({
+      'mdview-memory': helper.toString('base64'),
+      'mdview-memory-guard.dylib': (await readFile(library)).toString('base64'),
+    }))
+    const code = "process.stdin.once('data', () => { console.log('received-document'); process.exit(0) }); setTimeout(() => process.exit(0), 200)"
+    launch = await sandbox.sandboxLaunch([process.execPath, '-e', code])
+    const child = sandbox.spawnRenderProcess({ ...launch, args: ['--import', preload, ...launch.args] })
+    let output = '', diagnostics = ''
+    child.stdout.on('data', (chunk) => { output += chunk })
+    child.stderr.on('data', (chunk) => { diagnostics += chunk })
+    const status = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { sandbox.stopRenderProcess(child, true); reject(new Error('Guard probe timed out')) }, 8000)
+      child.once('error', reject)
+      child.once('close', (code) => { clearTimeout(timer); resolve(code) })
+    })
+    child.stdin.end('private document bytes')
+    expect(await status).not.toBe(0)
+    expect(diagnostics).toContain('Memory protection readiness was not verified')
+    expect(output).not.toContain('received-document')
+  } finally {
+    await launch?.cleanup?.()
+    await rm(directory, { recursive: true, force: true })
   }
 }, 15000)

@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { SandboxManager, type SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime'
 
+import { MEMORY_READY, RENDER_MEMORY_BYTES, RENDER_MEMORY_MIB, VERIFY_MEMORY_SCOPE } from './render-memory.js'
+
 import { linuxSeccomp } from './linux-seccomp.js'
 
 const runFile = promisify(execFile)
@@ -82,7 +84,10 @@ async function launchSandbox(command: string[], directory: string): Promise<void
   let workerArgs = command.slice(1)
   const bun = globalThis as typeof globalThis & { Bun?: { isStandaloneExecutable?: boolean } }
   if (!bun.Bun?.isStandaloneExecutable) {
-    const modules = path.dirname(fileURLToPath(import.meta.url))
+    let modules = path.dirname(fileURLToPath(import.meta.url))
+    if (process.platform === 'darwin' && !process.versions.bun && modules.endsWith('/src')) {
+      modules = path.resolve(modules, '../dist')
+    }
     const root = path.dirname(modules)
     const names = (await readdir(modules)).filter((name) => /\.(?:js|ts|tsx)$/.test(name) && !name.endsWith('.d.ts'))
     if (process.platform === 'darwin' && process.versions.bun) {
@@ -124,18 +129,37 @@ async function launchSandbox(command: string[], directory: string): Promise<void
       for (const file of read) args.push('--ro-bind', file, file)
       args.push('--bind', work, work, '--chdir', work, '--remount-ro', '/',
         '--seccomp', '3', '--', runtime, ...workerArgs)
-      const child = spawn(await executable('bwrap'), args, {
-        env: {}, stdio: ['inherit', 'inherit', 'inherit', filter.fd],
+      const scopeArgs = ['--user', '--scope', '--quiet', '--collect',
+        `--unit=${path.basename(directory)}`,
+        '-p', `MemoryMax=${RENDER_MEMORY_BYTES}`, '-p', 'MemorySwapMax=0',
+        '-p', 'OOMPolicy=kill', '-p', 'TasksMax=64',
+        '/bin/sh', '-c', VERIFY_MEMORY_SCOPE, 'sh', await executable('bwrap'), ...args]
+      const child = spawn(await executable('systemd-run'), scopeArgs, {
+        env: { XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS }, stdio: ['inherit', 'inherit', 'inherit', filter.fd],
       })
       process.exitCode = await new Promise<number>((resolve, reject) => {
         child.once('error', reject)
-        child.once('exit', (code) => resolve(code ?? 1))
+        child.once('exit', (code, signal) => resolve(code ?? (signal === 'SIGKILL' ? 137 : 1)))
       })
     } finally {
       await filter.close()
     }
     return
   }
+  const assets = (globalThis as typeof globalThis & { mdviewNativeAssets?: Record<string, string> }).mdviewNativeAssets
+  let nativeDirectory = fileURLToPath(new URL('../dist/native/', import.meta.url))
+  if (assets) {
+    nativeDirectory = path.join(directory, 'native')
+    await rm(nativeDirectory, { recursive: true, force: true })
+    await mkdir(nativeDirectory, { mode: 0o700 })
+    for (const name of ['mdview-memory', 'mdview-memory-guard.dylib']) {
+      if (!assets[name]) throw new Error('Missing bundled memory protection asset')
+      await writeFile(path.join(nativeDirectory, name), Buffer.from(assets[name], 'base64'), { mode: 0o500, flag: 'wx' })
+    }
+  }
+  const memoryHelper = await realpath(path.join(nativeDirectory, 'mdview-memory'))
+  const memoryGuard = await realpath(path.join(nativeDirectory, 'mdview-memory-guard.dylib'))
+  read.push(memoryHelper, memoryGuard)
   const literal = (value: string) => ({ path: value, literal: true as const })
   const config: SandboxRuntimeConfig = {
     network: {
@@ -156,14 +180,47 @@ async function launchSandbox(command: string[], directory: string): Promise<void
       throw new Error([...dependencies.errors, ...dependencies.warnings].join('; '))
     }
     // Remove proxy variables and runtime startup hooks from the parser environment.
+    const profilePath = path.join(directory, 'profile.sb')
     const invocation = [env, '-i', 'HOME=/nonexistent', 'PATH=/nonexistent', 'LANG=C.UTF-8',
-      'NODE_NO_WARNINGS=1', 'TSX_DISABLE_CACHE=1', `TMPDIR=${work}`, runtime, ...workerArgs]
+      'NODE_NO_WARNINGS=1', 'TSX_DISABLE_CACHE=1', `TMPDIR=${work}`, memoryHelper, memoryGuard, String(RENDER_MEMORY_MIB), profilePath, runtime, ...workerArgs]
     const wrapped = await SandboxManager.wrapWithSandboxArgv('exec ' + invocation.map(quote).join(' '), shell)
-    const child = spawn(wrapped.argv[0], wrapped.argv.slice(1), { env: wrapped.env, stdio: 'inherit' })
+    // SRT 0.0.82 quotes literal argv; reject changed syntax instead of evaluating it.
+    const words = wrapped.argv[2]?.match(/'(?:[^']|'"'"')*'|[A-Za-z0-9_./:=@+,-]+/g) ?? []
+    if (wrapped.argv[0] !== shell || wrapped.argv[1] !== '-c' || words.join(' ') !== wrapped.argv[2]) {
+      throw new Error('Unsupported SRT macOS wrapper syntax')
+    }
+    const argv = words.map((word) => word.startsWith("'") ? word.slice(1, -1).replaceAll("'\"'\"'", "'") : word)
+    const index = argv.indexOf('/usr/bin/sandbox-exec')
+    if (index < 0 || argv[index + 1] !== '-p' || argv[index + 3] !== shell || argv[index + 4] !== '-c') {
+      throw new Error('Missing SRT macOS profile')
+    }
+    const profile = argv[index + 2]
+    if (!profile.startsWith('(version 1)') || !profile.includes('(deny default') ||
+        !profile.includes('(allow process-exec)') || !profile.includes('(allow process-fork)')) {
+      throw new Error('Unsupported SRT macOS profile')
+    }
+    await writeFile(profilePath, profile.replace('(allow process-exec)', '(deny process-exec)')
+      .replace('(allow process-fork)', '(deny process-fork)'), { mode: 0o600 })
+    const child = spawn(invocation[0], invocation.slice(1), {
+      env: {}, stdio: ['pipe', 'inherit', 'inherit', 'pipe'],
+    })
+    const ready = child.stdio[3] as import('node:stream').Readable
+    let handshake = ''
+    ready.on('data', (chunk: Buffer) => {
+      handshake += chunk.toString('utf8')
+      if (!MEMORY_READY.startsWith(handshake)) child.kill('SIGKILL')
+    })
+    ready.once('end', () => {
+      if (handshake === MEMORY_READY) process.stdin.pipe(child.stdin!)
+      else child.kill('SIGKILL')
+    })
+    child.stdin!.on('error', () => {})
     const status = await new Promise<number>((resolve, reject) => {
       child.once('error', reject)
-      child.once('exit', (code) => resolve(code ?? 1))
+      child.once('exit', (code, signal) => resolve(code ?? (signal === 'SIGKILL' ? 137 : 1)))
     })
+    process.stdin.unpipe(child.stdin!)
+    if (handshake !== MEMORY_READY) throw new Error('Memory protection readiness was not verified')
     process.exitCode = status
   } finally {
     SandboxManager.cleanupAfterCommand()

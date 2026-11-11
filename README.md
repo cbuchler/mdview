@@ -171,20 +171,25 @@ seccomp filter installed before the parser starts. macOS uses
 [@anthropic-ai/sandbox-runtime](https://github.com/anthropics/sandbox-runtime),
 pinned to version 0.0.82. Windows is not supported.
 
-- Linux requires Bubblewrap with user namespace support and `/usr/bin/ldd`.
+- Linux requires Bubblewrap with user namespace support, `/usr/bin/ldd`,
+  and `systemd-run` connected to a systemd user manager. Cgroup v2 memory
+  and task controls must be available to that manager.
   The parser needs no nested namespace helper or proxy. Host security policy
   must permit Bubblewrap itself; mdview does not change that policy. Ubuntu
   24.04 arm64 CI blocked Bubblewrap network-namespace setup before parser
   startup. That configuration is not validated as supported.
 - macOS requires the system `/usr/bin/sandbox-exec` and `/bin/bash`. It uses
   Apple's Seatbelt profiles without an Endpoint Security entitlement. Custom
-  profiles remain an unsupported Apple interface.
+  profiles remain an unsupported Apple interface. Builds also compile a small
+  native helper and guard with Apple command-line tools. Standalone binaries
+  embed these assets; users do not need a compiler to run them. Node source
+  development requires `npm run build` before rendering.
 - Linux x64 and arm64 builds generate the seccomp filter internally. No native
   helper or compiler is needed at runtime.
 
-Native CI checks cover Linux x64 and macOS arm64 with Node and Bun, including
-the compiled executable without Node or Bun on `PATH`. Other architectures
-and OS versions need their own validation. A host that blocks the required
+Native CI runs on Ubuntu 26.04 x64/arm64 and macOS 26 Intel/Apple Silicon,
+with Node, Bun, and the compiled executable without Node or Bun on `PATH`.
+Other OS versions need their own validation. A host that blocks the required
 Linux namespaces will still refuse rendering even if these CI checks pass.
 
 On an unsupported platform, or when sandbox setup fails, mdview refuses to render.
@@ -202,7 +207,8 @@ parent reads documents and fetches URLs, then sends text through pipes. Local
 reload and remote reading therefore remain available without giving the parser
 access to the source filesystem or host network.
 
-The worker receives three pipes and a clean environment. Filesystem reads start
+The worker receives input/output pipes and a clean environment. On macOS,
+a temporary readiness pipe closes before document input is forwarded. Filesystem reads start
 denied, with exceptions for read-only system/runtime libraries, application
 modules and dependencies, and a private writable work directory. Homebrew
 runtime aliases are exposed where needed; macOS Homebrew installations also
@@ -232,13 +238,30 @@ These restrictions limit what code could access after a parser compromise. They
 do not prove that the parser cannot execute code. The worker can still produce
 incorrect output, and it shares the host kernel. The seccomp filter is not a
 complete syscall allowlist and there is no guarantee against kernel exploits.
-Resource limits remain a separate requirement.
+The memory controls described below bound the parser, not the entire viewer
+process or all kernel resources.
 
 </details>
 
 Input defaults to a 2 MiB limit and an 8-second URL timeout. Invalid or timed-out reloads keep the last valid document visible. Character widths can vary with your terminal and font.
 
-Markdown rendering runs in a separate process with a deadline, but it has no hard OS memory limit. Large or complex input can exhaust available memory. Hard memory enforcement remains open in [issue #24](https://github.com/cbuchler/mdview/issues/24).
+Source builds enforce a 256 MiB parser memory budget. Linux applies this to
+Bubblewrap and its descendants as a group, disables swap for the group, and
+limits it to 64 tasks. macOS applies a fatal physical-footprint limit to the
+worker and denies fork and exec. These are different OS accounting rules;
+neither is a limit on the viewer's total memory. Complex documents can fail
+even when they are below the input byte limit.
+
+Memory setup must succeed before document input reaches the worker. A killed
+worker can be replaced for the next render. Failed reloads retain the last
+valid document. `--no-sandbox` disables these OS memory controls along with
+filesystem and network isolation; it is not an automatic recovery step.
+
+The macOS implementation uses private Apple memory APIs and the deprecated
+Seatbelt profile interface. An OS change can make setup fail. The launcher
+requires the native guard to signal readiness; it refuses to send document
+input when the guard does not load. These source changes are not yet part of
+a published stable release.
 
 <details>
 <summary>Render deadlines, input handling, and output limits</summary>

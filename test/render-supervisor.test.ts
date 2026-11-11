@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -14,7 +15,8 @@ const gone = (pid: number) => {
 }
 
 it('renders and reflows in the real worker, and recovers after invalid Markdown', async () => {
-  const renderer = new RenderSupervisor()
+  // This checks reflow and the configurable input boundary, not parser throughput.
+  const renderer = new RenderSupervisor({ timeoutMs: 15000 })
   try {
     const markdown = '# Title\n\n' + '界 👩‍💻 content '.repeat(30)
     const wide = await renderer.render(markdown, options, maxBytes)
@@ -32,7 +34,7 @@ it('renders and reflows in the real worker, and recovers after invalid Markdown'
   } finally {
     await renderer.dispose()
   }
-}, 15000)
+}, 30000)
 
 it('times out a CPU-bound child, reaps it, and starts a healthy replacement', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'mdview-worker-'))
@@ -148,3 +150,14 @@ it('rejects invalid source ranges, context, ordering, and offsets before anchor 
   ranges.accept({ type: 'line', line: [], source: { block: 0, offset: 10 } })
   expect(() => ranges.accept({ type: 'block', block: { ...block, start: 10 } })).toThrow('response order')
 })
+
+it.skipIf(!['linux', 'darwin'].includes(process.platform)).each([undefined, ...(existsSync('release/mdview') ? [path.resolve('release/mdview')] : [])])('rejects a pathological table and renders a healthy replacement (%s)', async (binary) => {
+  const row = '|' + ' cell |'.repeat(100) + '\n'
+  const table = row + '|' + ' --- |'.repeat(100) + '\n' + row.repeat(1000)
+  expect(Buffer.byteLength(table)).toBeLessThan(maxBytes)
+  const renderer = new RenderSupervisor(binary ? { command: [binary, '--internal-render-worker'] } : {})
+  try {
+    await expect(renderer.render(table, options, maxBytes)).rejects.toThrow(/exited|closed|killed|deadline|limit/)
+    expect((await renderer.render('# Recovered', options, maxBytes)).title).toBe('Recovered')
+  } finally { await renderer.dispose() }
+}, 15000)

@@ -150,7 +150,11 @@ export class RenderSupervisor {
     child.once('error', () => {
       if (this.worker === worker) this.fail(failure('Cannot start render worker'))
     })
-    child.once('close', () => {
+    child.once('close', (code, signal) => {
+      if (this.worker === worker && (code === 137 || signal === 'SIGKILL')) {
+        this.fail(new Error('Render worker was killed; it may have exceeded its memory limit'))
+        return
+      }
       if (this.worker === worker) this.fail(failure('Render worker exited before completion' +
         (diagnosticText.trim() ? `: ${sanitizeDisplayText(diagnosticText.trim())}` : '')))
     })

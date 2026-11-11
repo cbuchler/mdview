@@ -18,7 +18,10 @@ export interface RenderLaunch {
 export function renderWorkerCommand(mode = '--internal-render-worker'): string[] {
   const bun = globalThis as typeof globalThis & { Bun?: { isStandaloneExecutable?: boolean } }
   if (bun.Bun?.isStandaloneExecutable) return [process.execPath, mode]
-  const entry = fileURLToPath(new URL('./main' + (import.meta.url.endsWith('.ts') ? '.ts' : '.js'), import.meta.url))
+  let entry = fileURLToPath(new URL('./main' + (import.meta.url.endsWith('.ts') ? '.ts' : '.js'), import.meta.url))
+  if (mode === '--internal-render-worker' && process.platform === 'darwin' && !process.versions.bun && entry.endsWith('.ts')) {
+    entry = path.resolve(path.dirname(entry), '../dist/main.js')
+  }
   return process.versions.bun
     ? [process.execPath, '--no-install', entry, mode]
     : [process.execPath, ...(entry.endsWith('.ts') ? ['--import', import.meta.resolve('tsx')] : []), entry, mode]
@@ -46,6 +49,10 @@ export async function sandboxLaunch(command: string[]): Promise<RenderLaunch> {
   return {
     command: executable, args: [...args, JSON.stringify(command), directory],
     env: {
+      ...(process.platform === 'linux' ? {
+        XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid?.()}`,
+        DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS ?? `unix:path=${process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid?.()}`}/bus`,
+      } : {}),
       MDVIEW_PARENT_PID: String(process.pid), PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: directory, TMPDIR: directory,
       LANG: 'C.UTF-8', NODE_NO_WARNINGS: '1', TSX_DISABLE_CACHE: '1',
     },
