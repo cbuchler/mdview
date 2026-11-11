@@ -18,7 +18,9 @@ try {
   }
   const entry = path.join(directory, 'entry.mjs')
   await writeFile(entry, `globalThis.mdviewNativeAssets = ${JSON.stringify(assets)}\nawait import(${JSON.stringify(path.join(root, 'src/main.ts'))})\n`)
-  const result = spawnSync('bun', ['build', entry, '--compile', '--no-compile-autoload-dotenv', '--no-compile-autoload-bunfig',
+  const target = `bun-${process.platform}-${process.arch}`
+  if (!['linux', 'darwin'].includes(process.platform) || !['x64', 'arm64'].includes(process.arch)) throw new Error('Unsupported native binary target')
+  const result = spawnSync('bun', ['build', entry, '--compile', `--target=${target}`, '--no-compile-autoload-dotenv', '--no-compile-autoload-bunfig',
     '--no-compile-autoload-tsconfig', '--no-compile-autoload-package-json', '--outfile', path.join(root, 'release/mdview')], { stdio: 'inherit' })
   if (result.error) throw result.error
   process.exitCode = result.status ?? 1

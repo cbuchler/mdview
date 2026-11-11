@@ -15,18 +15,56 @@ Current source builds use Bubblewrap on Linux and Anthropic Sandbox Runtime on m
 [sandbox requirements and the explicit override](#limits-and-failure-recovery).
 Published release behavior is described in that release's notes.
 
-### Linux binary
+### Published binary
 
-Download `mdview-linux-x64.tar.gz` and `SHA256SUMS` from the same [GitHub release](https://github.com/cbuchler/mdview/releases/latest). Verify the archive, extract it, then install the binary:
+The current stable release provides `mdview-linux-x64.tar.gz` and `SHA256SUMS`
+on [GitHub Releases](https://github.com/cbuchler/mdview/releases/latest).
+Download both from the same release, verify the checksum, then extract and
+install the executable into `~/.local/bin`. Put that directory on `PATH`.
 
-```bash
-sha256sum -c SHA256SUMS
-tar -xzf mdview-linux-x64.tar.gz
-mkdir -p ~/.local/bin
-install -m 755 mdview ~/.local/bin/mdview
+### Four-platform distribution (next release)
+
+The source tree now prepares these versioned archives. They are CI artifacts;
+they are not yet published stable downloads.
+
+| Archive suffix | Native validation host | Rendering requirements |
+| --- | --- | --- |
+| `linux-x64.tar.gz` | Ubuntu 26.04 x64 | Bubblewrap, systemd user manager, cgroup v2 |
+| `linux-arm64.tar.gz` | Ubuntu 26.04 arm64 | Bubblewrap, systemd user manager, cgroup v2 |
+| `darwin-x64.tar.gz` | macOS 26 Intel | System Seatbelt support |
+| `darwin-arm64.tar.gz` | macOS 26 Apple Silicon | System Seatbelt support |
+
+Archives are named `mdview-vVERSION-OS-ARCH.tar.gz`. Each contains the executable,
+license, third-party notices, and Bash/Zsh/Fish completions. They need no Node,
+npm, Bun, or compiler at runtime. See the [sandbox requirements](#limits-and-failure-recovery).
+Older OS versions are not validated. macOS artifacts are not notarized.
+
+The next release will also include `install-release.sh` and `SHA256SUMS`.
+Download and inspect the script before running it. It selects the host archive,
+checks its SHA-256 checksum and version, and atomically installs it without sudo:
+
+```sh
+sh install-release.sh --version v0.3.0
+# Or select another directory:
+sh install-release.sh --version v0.3.0 --install-dir "$HOME/bin"
 ```
 
-Make sure `~/.local/bin` is on your `PATH`. The binary runs on Linux x86-64. For other platforms, build from source.
+These commands require the matching release assets to be published first.
+Omit `--version` to select the latest stable release once that release includes
+the new archive format. The default destination is `~/.local/bin`.
+
+Run the installer again to upgrade or reinstall. It refuses symlink and
+Homebrew-managed destinations; use `brew upgrade` for a Homebrew installation.
+For a direct install, remove the executable to uninstall:
+
+```sh
+rm "$HOME/.local/bin/mdview"
+```
+
+This leaves your history and configuration intact. Direct installation does
+not install completions automatically; copy them from the archive to your
+shell's completion directory if needed. See [release artifact preparation](docs/distribution.md)
+for checksum verification and the publication checks.
 
 ### From source
 
