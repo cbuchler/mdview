@@ -20,7 +20,7 @@ export function renderWorkerCommand(mode = '--internal-render-worker'): string[]
   if (bun.Bun?.isStandaloneExecutable) return [process.execPath, mode]
   const entry = fileURLToPath(new URL('./main' + (import.meta.url.endsWith('.ts') ? '.ts' : '.js'), import.meta.url))
   return process.versions.bun
-    ? [process.execPath, entry, mode]
+    ? [process.execPath, '--no-install', entry, mode]
     : [process.execPath, ...(entry.endsWith('.ts') ? ['--import', import.meta.resolve('tsx')] : []), entry, mode]
 }
 

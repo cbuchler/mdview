@@ -107,6 +107,7 @@ export async function runSandboxLauncher(command: string[], directory: string): 
       await copyFile(path.join(root, 'package.json'), path.join(app, 'package.json'))
       await symlink(path.join(root, 'node_modules'), path.join(app, 'node_modules'))
       workerArgs = workerArgs.map((arg) => arg.startsWith(root + '/') ? app + arg.slice(root.length) : arg)
+      workerArgs.unshift('--preserve-symlinks')
       read.push(app)
     } else {
       read.push(...names.map((name) => path.join(modules, name)), path.join(root, 'package.json'))
