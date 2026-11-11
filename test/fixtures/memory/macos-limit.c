@@ -29,7 +29,8 @@ int main(int argc, char **argv) {
     if (result) return 3;
     pid_t child;
     char *args[] = { argv[0], argc > 2 ? argv[2] : "allocate", NULL };
-    result = posix_spawn(&child, argv[0], NULL, &attr, args, environ);
+    char **child_args = argc > 3 && !strcmp(argv[2], "command") ? &argv[3] : args;
+    result = posix_spawn(&child, child_args[0], NULL, &attr, child_args, environ);
     posix_spawnattr_destroy(&attr);
     printf("spawn_result=%d\n", result);
     if (result) return 3;
