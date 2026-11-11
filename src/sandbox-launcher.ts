@@ -42,6 +42,7 @@ async function runtimeFiles(executables: string[]): Promise<string[]> {
     // The shared cache is an OS runtime asset, not a document or user directory.
     directories.add('/System/Library')
     directories.add('/usr/lib')
+    directories.add('/usr/share/icu')
   }
   for (const binary of executables) {
     if (process.platform !== 'linux') continue

@@ -54,3 +54,6 @@ jobs:
       - name: Check real terminal and busy-worker shutdown
         if: runner.os == 'Linux'
         run: python3 test/fixtures/terminal-pty.py "$PWD" "$(command -v node)" "$PWD/release/mdview"
+      - name: Report macOS sandbox denials
+        if: failure() && runner.os == 'macOS'
+        run: sudo log show --last 3m --style compact --predicate 'process == "sandboxd"' | tail -60
