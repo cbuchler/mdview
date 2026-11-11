@@ -1,0 +1,20 @@
+name: Memory feasibility
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: cc -Wall -Wextra test/fixtures/memory/macos-limit.c -o /tmp/mdview-memory-probe
+      - name: Record bounded native memory-limit probes
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          for mode in ['rss', 'address-space', 'jetsam']:
+              result = subprocess.run(['/tmp/mdview-memory-probe', mode], capture_output=True, text=True, timeout=10)
+              print(mode, 'exit=', result.returncode, result.stdout, result.stderr, flush=True)
+          PY
