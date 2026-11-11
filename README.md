@@ -11,29 +11,31 @@ Read Markdown in your terminal and return to where you left off.
 
 ## Install
 
-**v0.3.0 is being prepared.** This README describes the current source.
-The latest published release is [v0.2.1](https://github.com/cbuchler/mdview/releases/tag/v0.2.1);
-see its release notes for that version's behavior.
+The latest stable release is [v0.3.0](https://github.com/cbuchler/mdview/releases/tag/v0.3.0).
+Check the [runtime requirements](#limits-and-failure-recovery) before installation.
 
 ### Published binary
 
-Download `mdview-linux-x64.tar.gz` and `SHA256SUMS` from the same
-[GitHub release](https://github.com/cbuchler/mdview/releases/latest).
-Verify the checksum, extract the archive, and install the executable in
-`~/.local/bin`. Add that directory to your `PATH`.
+Download and inspect [install-release.sh](https://github.com/cbuchler/mdview/releases/download/v0.3.0/install-release.sh), then run:
 
-### Coming in v0.3.0
+```sh
+sh install-release.sh --version v0.3.0
+```
 
-Standalone archives are planned for Linux and macOS, on x64 and ARM64.
-They include the executable, license, third-party notices, and shell completions.
-Node, npm, Bun, and a compiler are not needed to run them.
+The installer selects the Linux or macOS archive for x64 or ARM64, verifies its
+checksum and version, and installs it in `~/.local/bin`. Add that directory to
+your `PATH`. Use `--install-dir` to choose another directory. Run the installer
+again to upgrade; use Homebrew for Homebrew-managed installations.
 
-The release will include a checksum-verifying installer. Homebrew delivery is
-being prepared in [cbuchler/homebrew-tap](https://github.com/cbuchler/homebrew-tap);
-the mdview formula and bottles are not yet published.
+For manual installation, download the matching archive and `SHA256SUMS` from
+the [release](https://github.com/cbuchler/mdview/releases/tag/v0.3.0),
+[verify the checksum](docs/distribution.md#verify-and-install-an-archive), and extract it.
+Archives include the executable, license, third-party notices, and shell
+completions. Node, npm, Bun, and a compiler are not needed to run them.
 
-See [release preparation](docs/distribution.md) and
-[Homebrew delivery](docs/homebrew.md) for the publication steps.
+Homebrew delivery is being prepared in
+[cbuchler/homebrew-tap](https://github.com/cbuchler/homebrew-tap).
+See [Homebrew delivery](docs/homebrew.md) for its publication status.
 
 ### From source
 
@@ -188,8 +190,7 @@ Bare `--wrap` enables wrapping; `--wrap=false` disables it.
 
 ## Limits and failure recovery
 
-Current source requires sandbox and OS memory protection before rendering.
-These changes are part of the v0.3.0 preparation, not the published v0.2.1 binary.
+Since v0.3.0, mdview requires sandbox and OS memory protection before rendering.
 
 | Platform | Runtime requirements |
 | --- | --- |

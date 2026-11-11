@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 — In preparation
+## 0.3.0 — 2026-11-11
 
 - Require sandboxed Markdown rendering on Linux and macOS. Refuse rendering when protection cannot start; allow an explicit `--no-sandbox` override for one invocation (#40).
 - Enforce a 256 MiB parser memory budget through native OS controls. Linux also limits tasks and disables swap for the worker group. Failed reloads keep the last valid document visible (#41).

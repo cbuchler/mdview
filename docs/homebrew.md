@@ -1,8 +1,9 @@
 # Homebrew delivery
 
-The proposed tap is `cbuchler/homebrew-tap`. It is not yet published. Do not
-advertise `brew install cbuchler/tap/mdview` until the source and bottles are
-available and the public installation has passed.
+The tap is [cbuchler/homebrew-tap](https://github.com/cbuchler/homebrew-tap).
+Its first mdview formula is in [PR #1](https://github.com/cbuchler/homebrew-tap/pull/1).
+Do not advertise `brew install cbuchler/tap/mdview` until the source and bottles
+are available and the public installation has passed.
 
 The formula template is [mdview.rb.in](../packaging/homebrew/mdview.rb.in).
 It builds from immutable source with locked npm dependencies and a checksummed
