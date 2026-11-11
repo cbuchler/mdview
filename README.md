@@ -185,9 +185,10 @@ source. Windows is not supported by this integration.
   it into a private session directory. It still needs the system tools listed
   above. Source and npm builds load the helper from the pinned npm package.
 
-The integration has CI checks on Linux and macOS. Native macOS behavior and
-successful Linux containment must be verified before release; local validation
-on this Ubuntu host currently stops at an AppArmor denial of the nested helper.
+Native CI checks cover Linux x64 and macOS arm64 with Node and Bun, including
+the compiled executable without Node or Bun on `PATH`. Other architectures
+and OS versions need their own validation. A host that blocks the required
+Linux namespaces will still refuse rendering even if these CI checks pass.
 
 On an unsupported platform, or when sandbox setup fails, mdview refuses to render.
 To explicitly accept unrestricted rendering for one invocation, use
@@ -208,7 +209,8 @@ The worker receives three pipes and a clean environment. Filesystem reads start
 denied, with exceptions for read-only system/runtime libraries, application
 modules and dependencies, and a private writable work directory. Homebrew
 runtime aliases are exposed where needed; macOS Homebrew installations also
-expose the Cellar read-only for linked libraries. Do not store secrets among
+expose the Cellar read-only for linked libraries. macOS also exposes its system
+ICU data for Unicode text layout. Do not store secrets among
 runtime assets. Bun source execution on macOS uses a private read-only copy of
 the application files so module lookup does not expose the checkout. Document
 paths, history storage and credential files are not granted to the worker.
