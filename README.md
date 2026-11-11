@@ -209,7 +209,8 @@ denied, with exceptions for read-only system/runtime libraries, application
 modules and dependencies, and a private writable work directory. Homebrew
 runtime aliases are exposed where needed; macOS Homebrew installations also
 expose the Cellar read-only for linked libraries. Do not store secrets among
-runtime assets. Document paths, history storage and credential files are not
+runtime assets. Bun source execution on macOS also needs read access to the
+application module directory for module resolution. Document paths, history storage and credential files are not
 granted to the worker.
 
 On Linux, Bubblewrap isolates the worker's process and network namespaces.

@@ -95,6 +95,8 @@ export async function runSandboxLauncher(command: string[], directory: string): 
   if (!bun.Bun?.isStandaloneExecutable) {
     const modules = path.dirname(fileURLToPath(import.meta.url))
     const root = path.dirname(modules)
+    // Bun enumerates the module directory when resolving source files on macOS.
+    if (process.platform === 'darwin' && process.versions.bun) read.push(modules)
     for (const name of await readdir(modules)) {
       if (/\.(?:js|ts|tsx)$/.test(name) && !name.endsWith('.d.ts')) read.push(path.join(modules, name))
     }

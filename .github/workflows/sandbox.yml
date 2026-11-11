@@ -31,9 +31,26 @@ jobs:
           fi
       - run: npm ci
       - run: npx tsc --noEmit
-      - run: npx vitest run test/render-sandbox.test.ts test/render-supervisor.test.ts
+      - run: npx vitest run --exclude test/terminal-pty.test.ts
       - run: npm run build
       - run: node dist/main.js --no-history README.md > /dev/null
       - run: bun src/main.ts --no-history README.md > /dev/null
       - run: npm run package:binaries
       - run: release/mdview --no-history README.md > /dev/null
+      - name: Run without Node or Bun on PATH
+        shell: bash
+        run: |
+          tools=$(mktemp -d)
+          trap 'rm -rf "$tools"' EXIT
+          for tool in bash env rg; do
+            ln -s "$(command -v "$tool")" "$tools/$tool"
+          done
+          if [ "$RUNNER_OS" = Linux ]; then
+            for tool in bwrap socat; do
+              ln -s "$(command -v "$tool")" "$tools/$tool"
+            done
+          fi
+          PATH="$tools" release/mdview --no-history README.md > /dev/null
+      - name: Check real terminal and busy-worker shutdown
+        if: runner.os == 'Linux'
+        run: python3 test/fixtures/terminal-pty.py "$PWD" "$(command -v node)" "$PWD/release/mdview"

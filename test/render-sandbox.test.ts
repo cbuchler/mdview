@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { openSync, closeSync, statSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import net from 'node:net'
+import dgram from 'node:dgram'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -19,6 +20,8 @@ it.skipIf(!['linux', 'darwin'].includes(process.platform))('denies host files, s
   const fd = openSync(secret, 'r')
   const tcp = net.createServer((connection) => connection.end())
   const unix = net.createServer((connection) => connection.end())
+  const udp = dgram.createSocket('udp4')
+  const received: string[] = []
   let launch: sandbox.RenderLaunch | undefined
   const listen = (server: net.Server, address: string | number) => new Promise<void>((resolve) => {
     if (typeof address === 'string') server.listen(address, resolve)
@@ -32,7 +35,14 @@ it.skipIf(!['linux', 'darwin'].includes(process.platform))('denies host files, s
   try {
     await listen(tcp, 0)
     await listen(unix, socket)
+    await new Promise<void>((resolve) => udp.bind(0, '127.0.0.1', resolve))
     const port = (tcp.address() as net.AddressInfo).port
+    const udpPort = udp.address().port
+    await new Promise<void>((resolve, reject) => {
+      udp.once('message', () => resolve())
+      udp.send('baseline', udpPort, '127.0.0.1', (error) => { if (error) reject(error) })
+    })
+    udp.on('message', (message) => received.push(message.toString()))
     expect(await readFile(secret, 'utf8')).toBe('host sentinel')
     await connect({ port, host: '127.0.0.1' })
     await connect({ path: socket })
@@ -46,6 +56,9 @@ it.skipIf(!['linux', 'darwin'].includes(process.platform))('denies host files, s
         c.setTimeout(500, () => { c.destroy(); resolve(true) })
       })
       ;(async () => {
+        const udp = require('node:dgram').createSocket('udp4')
+        udp.on('error', () => {})
+        try { udp.send('escaped', ${udpPort}, '127.0.0.1', () => {}) } catch {}
         const results = {
           read: denied(() => fs.readFileSync(${JSON.stringify(secret)})),
           write: denied(() => fs.writeFileSync(${JSON.stringify(secret)}, 'changed')),
@@ -69,6 +82,8 @@ it.skipIf(!['linux', 'darwin'].includes(process.platform))('denies host files, s
         const temporary = require('node:path').join(process.env.TMPDIR, 'private')
         fs.writeFileSync(temporary, 'private')
         results.privateTemporaryFile = fs.readFileSync(temporary, 'utf8') === 'private'
+        await new Promise(resolve => setTimeout(resolve, 300))
+        try { udp.close() } catch {}
         process.stdout.write(JSON.stringify(results))
       })()
     `
@@ -96,10 +111,12 @@ it.skipIf(!['linux', 'darwin'].includes(process.platform))('denies host files, s
       descendant: true,
     })
     expect(await readFile(secret, 'utf8')).toBe('host sentinel')
+    expect(received).toEqual([])
   } finally {
     closeSync(fd)
     tcp.close()
     unix.close()
+    udp.close()
     await launch?.cleanup?.()
     await rm(directory, { recursive: true, force: true })
   }
