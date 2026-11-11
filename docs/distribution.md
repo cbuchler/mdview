@@ -25,6 +25,7 @@ line for your archive so other platform downloads are not required:
 ```sh
 archive=mdview-v0.3.0-linux-x64.tar.gz
 awk -v file="$archive" '$2 == file' SHA256SUMS > selected.sha256
+test -s selected.sha256
 sha256sum -c selected.sha256
 # On macOS, use: shasum -a 256 -c selected.sha256
 tar -xzf "$archive"

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { chmod, symlink, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, symlink, realpath, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,7 +40,7 @@ describe('install:binary helper', () => {
         maxBuffer: 8192,
       });
 
-      expect(result.stdout).toBe(`Installed mdview to ${fixture.installed}\n`);
+      expect(result.stdout).toBe(`Installed mdview to ${await realpath(fixture.installed)}\n`);
       expect(result.stderr).toBe('');
       expect(await readFile(fixture.installed)).toEqual(content);
       const installedStat = await stat(fixture.installed);
