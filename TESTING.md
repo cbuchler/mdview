@@ -58,3 +58,8 @@
 
 The Linux sandbox syscall probe requires a C compiler (`cc`) during testing.
 Installed mdview binaries do not require a compiler.
+
+On macOS, run `npm run build` before sandbox integration tests. Node source
+execution uses the built worker because source transforms can spawn a helper,
+which the worker policy denies. Native builds and the missing-guard test need
+Apple command-line tools; installed standalone binaries do not.

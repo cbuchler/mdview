@@ -187,9 +187,9 @@ pinned to version 0.0.82. Windows is not supported.
 - Linux x64 and arm64 builds generate the seccomp filter internally. No native
   helper or compiler is needed at runtime.
 
-Native CI checks cover Linux x64 and macOS arm64 with Node and Bun, including
-the compiled executable without Node or Bun on `PATH`. Other architectures
-and OS versions need their own validation. A host that blocks the required
+Native CI runs on Ubuntu 26.04 x64/arm64 and macOS 26 Intel/Apple Silicon,
+with Node, Bun, and the compiled executable without Node or Bun on `PATH`.
+Other OS versions need their own validation. A host that blocks the required
 Linux namespaces will still refuse rendering even if these CI checks pass.
 
 On an unsupported platform, or when sandbox setup fails, mdview refuses to render.
@@ -257,10 +257,11 @@ worker can be replaced for the next render. Failed reloads retain the last
 valid document. `--no-sandbox` disables these OS memory controls along with
 filesystem and network isolation; it is not an automatic recovery step.
 
-The production macOS integration is still under native validation in
-[PR #41](https://github.com/cbuchler/mdview/pull/41). Do not treat the draft as
-a supported release. The implementation uses private Apple memory APIs and
-the deprecated Seatbelt profile interface; an OS change can make setup fail.
+The macOS implementation uses private Apple memory APIs and the deprecated
+Seatbelt profile interface. An OS change can make setup fail. The launcher
+requires the native guard to signal readiness; it refuses to send document
+input when the guard does not load. These source changes are not yet part of
+a published stable release.
 
 <details>
 <summary>Render deadlines, input handling, and output limits</summary>
