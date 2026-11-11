@@ -33,6 +33,7 @@ class Session:
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 14, 80, 0, 0))
         self.before = termios.tcgetattr(self.slave)
         self.output = b""
+        self.runtime = pathlib.Path(runtime).resolve()
 
         def setup():
             # An inherited PTY fd is not itself a controlling terminal.
@@ -120,8 +121,8 @@ class Session:
                 for value in children:
                     pending.append(int(value))
                     command = pathlib.Path("/proc/%s/cmdline" % value).read_bytes().split(b"\0")
-                    # The Bubblewrap launcher also carries the worker argument but does not parse.
-                    if b"--internal-render-worker" in command and command[0].split(b"/")[-1] != b"bwrap":
+                    # Sandbox helpers carry the same arguments but do not parse Markdown.
+                    if b"--internal-render-worker" in command and pathlib.Path(os.fsdecode(command[0])).resolve() == self.runtime:
                         return int(value)
             except FileNotFoundError:
                 pass

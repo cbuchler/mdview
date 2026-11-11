@@ -67,8 +67,9 @@ async function runtimeFiles(executables: string[]): Promise<string[]> {
 }
 
 export async function runSandboxLauncher(command: string[], directory: string): Promise<void> {
-  const work = path.join(directory, 'work')
-  await mkdir(work, { mode: 0o700, recursive: true })
+  await mkdir(path.join(directory, 'work'), { mode: 0o700, recursive: true })
+  const work = await realpath(path.join(directory, 'work'))
+  process.chdir(work)
   const runtime = await realpath(command[0])
   const shell = '/bin/bash'
   const env = await executable('env')

@@ -26,6 +26,9 @@ jobs:
           sudo apt-get install -y bubblewrap socat ripgrep
           # This disposable runner must allow the nested namespaces used by SRT.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          if [ -f /etc/apparmor.d/bwrap-userns-restrict ]; then
+            sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict
+          fi
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npx vitest run test/render-sandbox.test.ts test/render-supervisor.test.ts
