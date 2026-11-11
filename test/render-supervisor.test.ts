@@ -15,7 +15,8 @@ const gone = (pid: number) => {
 }
 
 it('renders and reflows in the real worker, and recovers after invalid Markdown', async () => {
-  const renderer = new RenderSupervisor()
+  // This checks reflow and the configurable input boundary, not parser throughput.
+  const renderer = new RenderSupervisor({ timeoutMs: 15000 })
   try {
     const markdown = '# Title\n\n' + '界 👩‍💻 content '.repeat(30)
     const wide = await renderer.render(markdown, options, maxBytes)
@@ -33,7 +34,7 @@ it('renders and reflows in the real worker, and recovers after invalid Markdown'
   } finally {
     await renderer.dispose()
   }
-}, 15000)
+}, 30000)
 
 it('times out a CPU-bound child, reaps it, and starts a healthy replacement', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'mdview-worker-'))

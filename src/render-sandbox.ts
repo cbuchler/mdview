@@ -49,8 +49,10 @@ export async function sandboxLaunch(command: string[]): Promise<RenderLaunch> {
   return {
     command: executable, args: [...args, JSON.stringify(command), directory],
     env: {
-      XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid?.()}`,
-      DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS ?? `unix:path=${process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid?.()}`}/bus`,
+      ...(process.platform === 'linux' ? {
+        XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid?.()}`,
+        DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS ?? `unix:path=${process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid?.()}`}/bus`,
+      } : {}),
       MDVIEW_PARENT_PID: String(process.pid), PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: directory, TMPDIR: directory,
       LANG: 'C.UTF-8', NODE_NO_WARNINGS: '1', TSX_DISABLE_CACHE: '1',
     },
