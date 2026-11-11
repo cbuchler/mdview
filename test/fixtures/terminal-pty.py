@@ -131,7 +131,12 @@ class Session:
     def finish(self, status=0):
         actual = self.proc.wait(timeout=3)
         assert actual == status, (actual, self.output[-6000:])
-        self.drain(0)
+        # Exit output can span several PTY reads after a resize or busy render.
+        while select.select([self.master], [], [], 0)[0]:
+            previous_size = len(self.output)
+            self.drain(0)
+            if len(self.output) == previous_size:
+                break
         assert termios.tcgetattr(self.slave) == self.before, "terminal flags were not restored"
         assert b"Raw mode is not supported" not in self.output
 
