@@ -46,4 +46,4 @@ jobs:
       - run: npm ci
       - run: npm run build && npm run package:binaries
       - name: Compare real renderer output under native memory limits
-        run: MDVIEW_BUN="$(command -v bun)" MDVIEW_PROBE_PRELOAD=/tmp/mdview-deny-process.dylib node --import tsx test/fixtures/memory/render-probe.ts
+        run: MDVIEW_PROBE_LIMIT_MB=256 MDVIEW_BUN="$(command -v bun)" MDVIEW_PROBE_PRELOAD=/tmp/mdview-deny-process.dylib node --import tsx test/fixtures/memory/render-probe.ts

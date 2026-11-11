@@ -22,9 +22,12 @@ int main(int argc, char **argv) {
     if (!configure) { puts("spawn_api_unavailable"); return 3; }
     posix_spawnattr_t attr;
     posix_spawnattr_init(&attr);
-    int mb = !strcmp(argv[1], "raise-spawn") ? 384 : 96;
+    const char *configured = getenv("MDVIEW_PROBE_LIMIT_MB");
+    int mb = configured ? atoi(configured) : 96;
+    if (mb < 32 || mb > 512) return 2;
+    if (!strcmp(argv[1], "raise-spawn")) mb = 384;
     int result = configure(&attr, 0x04 | 0x08, 0, mb, mb);
-    fprintf(stderr, "spawn_limit_setup=%d uid=%d\n", result, getuid());
+    fprintf(stderr, "spawn_limit_setup=%d uid=%d limit_mb=%d\n", result, getuid(), mb);
     fflush(stdout);
     if (result) return 3;
     pid_t child;
