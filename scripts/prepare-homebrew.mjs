@@ -12,5 +12,6 @@ if (!/^[a-f0-9]{64}$/.test(checksum ?? '')) throw new Error('Supply the source a
 const template = await readFile(path.join(root, 'packaging/homebrew/mdview.rb.in'), 'utf8')
 await mkdir(path.join(destination, 'Formula'), { recursive: true })
 await writeFile(path.join(destination, 'Formula/mdview.rb'), template
+  .replace('  version "@VERSION@"\n', revision === `v${version}` ? '' : `  version "${version}"\n`)
   .replaceAll('@REF@', revision).replaceAll('@VERSION@', version).replaceAll('@SHA256@', checksum))
 console.log(path.join(destination, 'Formula/mdview.rb'))
