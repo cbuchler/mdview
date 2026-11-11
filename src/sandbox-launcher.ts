@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
 import { access, copyFile, mkdir, open, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
-import { constants } from 'node:fs'
+import { constants, rmSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -70,7 +70,7 @@ async function runtimeFiles(executables: string[]): Promise<string[]> {
   return result
 }
 
-export async function runSandboxLauncher(command: string[], directory: string): Promise<void> {
+async function launchSandbox(command: string[], directory: string): Promise<void> {
   await mkdir(path.join(directory, 'work'), { mode: 0o700, recursive: true })
   const work = await realpath(path.join(directory, 'work'))
   process.chdir(work)
@@ -168,5 +168,25 @@ export async function runSandboxLauncher(command: string[], directory: string): 
   } finally {
     SandboxManager.cleanupAfterCommand()
     await SandboxManager.reset()
+  }
+}
+
+export async function runSandboxLauncher(command: string[], directory: string): Promise<void> {
+  const owner = Number(process.env.MDVIEW_PARENT_PID)
+  if (!Number.isSafeInteger(owner) || owner <= 1) throw new Error('Missing sandbox parent identity')
+  const parentLost = () => {
+    try { rmSync(directory, { recursive: true, force: true }) } finally {
+      process.kill(-process.pid, 'SIGKILL')
+    }
+  }
+  // Reparenting detects owner death without relying on the busy parser's event loop.
+  const monitor = setInterval(() => {
+    if (process.ppid !== owner) parentLost()
+  }, 50)
+  try {
+    if (process.ppid !== owner) parentLost()
+    await launchSandbox(command, directory)
+  } finally {
+    clearInterval(monitor)
   }
 }

@@ -247,10 +247,13 @@ Markdown parsing and layout run in one child process in both interactive and pla
 
 Each result is limited to 16 MiB of protocol data, 8 MiB of decoded text, 50,000 lines, 50,000 source blocks, and 100,000 styled segments. Titles and error messages are limited to 4 KiB; child diagnostics are limited to 8 KiB. These fixed output limits also apply when `maxInputBytes` is increased. Source text travels as bounded UTF-8 bytes, without a JSON copy. Protocol records are checked before display. These limits bound communication and retained output; they do not bound parser memory.
 
-An uncatchable parent `SIGKILL` can prevent launcher and temporary-file cleanup.
-The extra launcher means Bubblewrap's parent-death handling alone does not prove
-cleanup after mdview itself dies. Idle workers exit when their input pipe closes.
-Hard memory limits and complete abnormal-exit validation remain tracked in
+The sandbox launcher checks its OS parent identity every 50 ms to detect
+UI-parent loss, including SIGKILL, independently of a busy parser. Detection
+can be delayed by OS scheduling. It removes session files and
+kills the launcher's process group. This does not restore a terminal after
+SIGKILL or cover killing the launcher itself, OS failure, or `--no-sandbox`.
+
+Hard memory limits and cleanup outside this sandboxed parent-loss case remain tracked in
 [issue #24](https://github.com/cbuchler/mdview/issues/24).
 
 </details>

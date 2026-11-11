@@ -46,7 +46,7 @@ export async function sandboxLaunch(command: string[]): Promise<RenderLaunch> {
   return {
     command: executable, args: [...args, JSON.stringify(command), directory],
     env: {
-      PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: directory, TMPDIR: directory,
+      MDVIEW_PARENT_PID: String(process.pid), PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: directory, TMPDIR: directory,
       LANG: 'C.UTF-8', NODE_NO_WARNINGS: '1', TSX_DISABLE_CACHE: '1',
     },
     cwd: directory, isolated: true,

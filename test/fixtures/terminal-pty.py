@@ -400,6 +400,24 @@ with tempfile.TemporaryDirectory(prefix="mdview-terminal-") as directory:
             RESULTS.append({"case": "SIGTERM during render " + pathlib.Path(runtime).name, "childReaped": True, "rawRestored": True})
         finally:
             session.close()
+        file.write_text("# PARENT_READY\n\nReady", encoding="utf-8")
+        session = Session([str(file), "--refresh", "20ms"], config, terminal_stdin=True, runtime=runtime)
+        try:
+            session.wait(lambda frame: "# PARENT_READY" in frame)
+            busy = session.worker()
+            assert busy, "persistent worker was not found"
+            before_ticks = cpu_ticks(busy)
+            file.write_text(expensive, encoding="utf-8")
+            session.wait(lambda frame: cpu_ticks(busy) >= before_ticks + 5)
+            os.kill(session.proc.pid, signal.SIGKILL)
+            assert session.proc.wait(timeout=3) == -signal.SIGKILL
+            deadline = time.monotonic() + 5
+            while pathlib.Path("/proc/%d" % busy).exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert not pathlib.Path("/proc/%d" % busy).exists(), "render child survived parent SIGKILL"
+            RESULTS.append({"case": "parent SIGKILL " + pathlib.Path(runtime).name, "childReaped": True})
+        finally:
+            session.close()
     file.write_text(document, encoding="utf-8")
 
     session = Session([], config, terminal_stdin=True, history=True)

@@ -1,5 +1,5 @@
-import { execFile } from 'node:child_process'
-import { openSync, closeSync, statSync } from 'node:fs'
+import { execFile, spawn } from 'node:child_process'
+import { openSync, closeSync, statSync, existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import net from 'node:net'
 import dgram from 'node:dgram'
@@ -175,3 +175,34 @@ it.skipIf(process.platform !== 'linux')('filters Linux socket and namespace sysc
     await rm(directory, { recursive: true, force: true })
   }
 }, 10000)
+
+it.skipIf(!['linux', 'darwin'].includes(process.platform)).each([undefined, ...(existsSync('release/mdview') ? [path.resolve('release/mdview')] : [])])('cleans up a busy sandbox when its UI parent is killed (%s)', async (launcher) => {
+  const parent = spawn(process.execPath, ['--import', 'tsx', 'test/fixtures/sandbox-parent.ts'], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, MDVIEW_TEST_LAUNCHER: launcher } })
+  let info: { pid: number, directory: string } | undefined
+  try {
+    let output = ''
+    let diagnostics = ''
+    parent.stderr.on('data', (chunk) => { diagnostics += chunk })
+    info = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Parent readiness timeout: ' + diagnostics)), 8000)
+      parent.stdout.on('data', (chunk) => {
+        output += chunk
+        if (output.includes('\n')) { clearTimeout(timer); resolve(JSON.parse(output.trim())) }
+      })
+      parent.once('error', reject)
+    })
+    const closed = new Promise((resolve) => parent.once('close', resolve))
+    parent.kill('SIGKILL')
+    await closed
+    await vi.waitFor(() => {
+      expect(() => statSync(info!.directory)).toThrow()
+      expect(() => process.kill(-info!.pid, 0)).toThrow()
+    }, { timeout: 5000 })
+  } finally {
+    parent.kill('SIGKILL')
+    if (info) {
+      try { process.kill(-info.pid, 'SIGKILL') } catch {}
+      await rm(info.directory, { recursive: true, force: true })
+    }
+  }
+}, 15000)
