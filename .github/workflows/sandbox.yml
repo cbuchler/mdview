@@ -36,11 +36,10 @@ jobs:
         run: |
           tools=$(mktemp -d)
           trap 'rm -rf "$tools"' EXIT
-          for tool in bash env rg; do
-            ln -s "$(command -v "$tool")" "$tools/$tool"
-          done
           if [ "$RUNNER_OS" = Linux ]; then
-            for tool in bwrap; do
+            ln -s "$(command -v bwrap)" "$tools/bwrap"
+          else
+            for tool in bash env rg; do
               ln -s "$(command -v "$tool")" "$tools/$tool"
             done
           fi
