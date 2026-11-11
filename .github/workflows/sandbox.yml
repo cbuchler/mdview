@@ -1,0 +1,36 @@
+name: Parser sandbox
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sandbox:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: oven-sh/setup-bun@v2
+      - name: Install Linux sandbox dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap socat ripgrep
+          # This disposable runner must allow the nested namespaces used by SRT.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx vitest run test/render-sandbox.test.ts test/render-supervisor.test.ts
+      - run: npm run build
+      - run: node dist/main.js --no-history README.md > /dev/null
+      - run: bun src/main.ts --no-history README.md > /dev/null
+      - run: npm run package:binaries
+      - run: release/mdview --no-history README.md > /dev/null

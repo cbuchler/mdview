@@ -11,7 +11,7 @@ Read Markdown in your terminal and return to where you left off.
 
 ## Install
 
-Current source builds require Linux sandbox dependencies before rendering. See
+Current source builds use Anthropic Sandbox Runtime on Linux and macOS. See
 [sandbox requirements and the explicit override](#limits-and-failure-recovery).
 Published release behavior is described in that release's notes.
 
@@ -166,11 +166,28 @@ If the passage is removed, mdview tries the following block, then the preceding 
 
 ## Limits and failure recovery
 
-Rendering requires a sandbox on every platform. The current backend supports Linux
-with Bubblewrap at `/usr/bin/bwrap`, `ldd` at `/usr/bin/ldd`, and permission to
-create unprivileged user namespaces. Bubblewrap must support `--disable-userns`
-and `--assert-userns-disabled`. The verified environment uses Bubblewrap 0.12.0
-on Linux x64. Install these system dependencies before using a standalone binary.
+Rendering requires a sandbox on every platform. Linux and macOS use
+[@anthropic-ai/sandbox-runtime](https://github.com/anthropics/sandbox-runtime),
+pinned to version 0.0.82. The parser uses the same restrictions for every input
+source. Windows is not supported by this integration.
+
+- Linux requires Bubblewrap, socat, ripgrep, `/bin/bash`, `env`, and
+  `/usr/bin/ldd`. Install Bubblewrap, socat and ripgrep with your system package
+  manager. Both Bubblewrap and Anthropic's seccomp helper need permission to
+  create capability-bearing user namespaces. Ubuntu's AppArmor policy can block
+  the helper even when Bubblewrap itself works. Mdview reports the failure and
+  stops; it does not alter host security settings or disable seccomp.
+- macOS requires the system `/usr/bin/sandbox-exec` and `/bin/bash`. It uses
+  Apple's Seatbelt profiles without an Endpoint Security entitlement. Custom
+  profiles remain an unsupported Apple interface and require compatibility
+  checks when macOS changes.
+- The Linux binary embeds the matching x64 or arm64 seccomp helper and extracts
+  it into a private session directory. It still needs the system tools listed
+  above. Source and npm builds load the helper from the pinned npm package.
+
+The integration has CI checks on Linux and macOS. Native macOS behavior and
+successful Linux containment must be verified before release; local validation
+on this Ubuntu host currently stops at an AppArmor denial of the nested helper.
 
 On an unsupported platform, or when sandbox setup fails, mdview refuses to render.
 To explicitly accept unrestricted rendering for one invocation, use
@@ -187,21 +204,35 @@ parent reads documents and fetches URLs, then sends text through pipes. Local
 reload and remote reading therefore remain available without giving the parser
 access to the source filesystem or host network.
 
-The worker sees read-only runtime libraries and application assets, a private
-temporary directory, and isolated process and network namespaces. It receives
-three pipes and an explicit environment. User files, history, credentials, host
-sockets, and the terminal are not mounted. Capabilities are removed, privilege
-gains are blocked, and nested user namespaces are disabled. The launcher uses
-`ldd` only on the trusted runtime executable to locate individual library files.
-Source and Node builds also expose their application modules and dependencies
-read-only; do not store secrets among those runtime assets.
+The worker receives three pipes and a clean environment. Filesystem reads start
+denied, with exceptions for read-only system/runtime libraries, application
+modules and dependencies, and a private writable work directory. Homebrew
+runtime aliases are exposed where needed; macOS Homebrew installations also
+expose the Cellar read-only for linked libraries. Do not store secrets among
+runtime assets. Document paths, history storage and credential files are not
+granted to the worker.
+
+On Linux, Bubblewrap isolates the worker's process and network namespaces.
+Anthropic's seccomp helper blocks Unix sockets, io_uring and namespace changes.
+On macOS, Seatbelt applies filesystem, network and process restrictions. Its
+baseline still allows some OS services; these profiles are not identical to
+Linux namespaces and should not be described as equivalent isolation.
+
+Anthropic's proxy runs in a separate launcher process. Its domain allowlist is
+empty and strict, with no approval callback, so every destination is denied.
+The worker receives no proxy environment variables. The parent still fetches
+remote documents itself. Proxy availability is an additional local attack
+surface; it does not grant permission to fetch document links.
+
+Mdview rejects missing dependencies and security warnings. Quit, cancellation
+and timeout kill the launcher's process group; Linux also uses Bubblewrap's
+parent-death behavior. Session files are removed when the supervisor is disposed.
 
 These restrictions limit what code could access after a parser compromise. They
 do not prove that the parser cannot execute code. The worker can still produce
-incorrect output, and it shares the host kernel. There is no custom seccomp
-syscall filter or protection against kernel exploits. Resource limits are a
-separate requirement. Node, Bun source, and the standalone binary have been
-checked on Linux x64; no macOS or Windows sandbox backend is implemented.
+incorrect output, and it shares the host kernel. The seccomp filter is not a
+complete syscall allowlist and there is no guarantee against kernel exploits.
+Resource limits remain a separate requirement.
 
 </details>
 
@@ -218,10 +249,10 @@ Markdown parsing and layout run in one child process in both interactive and pla
 
 Each result is limited to 16 MiB of protocol data, 8 MiB of decoded text, 50,000 lines, 50,000 source blocks, and 100,000 styled segments. Titles and error messages are limited to 4 KiB; child diagnostics are limited to 8 KiB. These fixed output limits also apply when `maxInputBytes` is increased. Source text travels as bounded UTF-8 bytes, without a JSON copy. Protocol records are checked before display. These limits bound communication and retained output; they do not bound parser memory.
 
-Bubblewrap is configured to terminate the worker when its parent dies. Without
-sandboxing, a busy child can continue after an uncatchable parent `SIGKILL` until
-it finishes or fails. Idle children exit when their input pipe closes. Hard
-memory limits and complete abnormal-exit validation remain tracked in
+An uncatchable parent `SIGKILL` can prevent launcher and temporary-file cleanup.
+The extra launcher means Bubblewrap's parent-death handling alone does not prove
+cleanup after mdview itself dies. Idle workers exit when their input pipe closes.
+Hard memory limits and complete abnormal-exit validation remain tracked in
 [issue #24](https://github.com/cbuchler/mdview/issues/24).
 
 </details>

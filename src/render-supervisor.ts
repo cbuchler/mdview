@@ -1,10 +1,10 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
-import { sandboxLaunch, spawnRenderProcess, SANDBOX_FAILURE } from './render-sandbox.js'
+import { sandboxLaunch, spawnRenderProcess, stopRenderProcess, renderWorkerCommand, SANDBOX_FAILURE } from './render-sandbox.js'
 import type { RenderLaunch } from './render-sandbox.js'
 import { RENDER_PROTOCOL_VERSION, DocumentReceiver, FrameReader, frame, record, displayString, decodeFrame, RENDER_TIMEOUT_MS, MAX_RENDER_HEADER_BYTES, MAX_RENDER_WIRE_BYTES, MAX_RENDER_LABEL_BYTES } from './render-protocol.js'
 import type { RenderOptions } from './render-protocol.js'
 import type { RenderedDocument } from './types.js'
+import { sanitizeDisplayText } from './utils.js'
 
 export class RenderCancelledError extends Error {
   constructor() { super('Render cancelled') }
@@ -13,6 +13,7 @@ export class RenderCancelledError extends Error {
 interface Worker {
   child: ChildProcessWithoutNullStreams
   closed: Promise<void>
+  isolated: boolean
 }
 
 interface Pending {
@@ -27,15 +28,6 @@ interface Pending {
   completed?: RenderedDocument
 }
 
-export function renderWorkerCommand(): string[] {
-  const bun = globalThis as typeof globalThis & { Bun?: { isStandaloneExecutable?: boolean } }
-  if (bun.Bun?.isStandaloneExecutable) return [process.execPath, '--internal-render-worker']
-  const entry = fileURLToPath(new URL('./main' + (import.meta.url.endsWith('.ts') ? '.ts' : '.js'), import.meta.url))
-  return process.versions.bun
-    ? [process.execPath, entry, '--internal-render-worker']
-    : [process.execPath, ...(entry.endsWith('.ts') ? ['--import', import.meta.resolve('tsx')] : []), entry, '--internal-render-worker']
-}
-
 export class RenderSupervisor {
   private worker: Worker | undefined
   private stopping: Promise<void> = Promise.resolve()
@@ -43,7 +35,7 @@ export class RenderSupervisor {
   private generation = 0
   private disposed = false
   private launch: Promise<RenderLaunch> | undefined
-  private exitHandler = () => { this.worker?.child.kill('SIGKILL') }
+  private exitHandler = () => { if (this.worker) stopRenderProcess(this.worker.child, this.worker.isolated) }
 
   constructor(private options: { timeoutMs?: number; command?: string[]; sandbox?: boolean } = {}) {
     process.once('exit', this.exitHandler)
@@ -104,6 +96,8 @@ export class RenderSupervisor {
     this.fail(new RenderCancelledError())
     process.off('exit', this.exitHandler)
     await this.stopping
+    const launch = await this.launch?.catch(() => undefined)
+    await launch?.cleanup?.()
   }
 
   private fail(error: Error): void {
@@ -116,16 +110,17 @@ export class RenderSupervisor {
     const worker = this.worker
     this.worker = undefined
     if (worker) {
-      worker.child.kill('SIGKILL')
+      stopRenderProcess(worker.child, worker.isolated)
       this.stopping = worker.closed
     }
   }
 
   private start(launch: RenderLaunch): Worker {
     const child = spawnRenderProcess(launch)
-    const worker = { child, closed: new Promise<void>((resolve) => child.once('close', () => resolve())) }
+    const worker = { child, isolated: launch.isolated ?? false, closed: new Promise<void>((resolve) => child.once('close', () => resolve())) }
     this.worker = worker
     let diagnostics = 0
+    let diagnosticText = ''
     const failure = (message: string) => new Error(this.options.sandbox === false ? message : `${message}. ${SANDBOX_FAILURE}`)
     child.stdout.on('data', (chunk: Buffer) => {
       try {
@@ -147,6 +142,7 @@ export class RenderSupervisor {
     child.stderr.on('data', (chunk: Buffer) => {
       diagnostics += chunk.length
       if (diagnostics > 8192) this.fail(new Error('Render worker exceeded diagnostic limit'))
+      else diagnosticText += chunk.toString('utf8')
     })
     child.stdin.on('error', () => {
       if (this.worker === worker) this.fail(failure('Render worker input closed'))
@@ -155,7 +151,8 @@ export class RenderSupervisor {
       if (this.worker === worker) this.fail(failure('Cannot start render worker'))
     })
     child.once('close', () => {
-      if (this.worker === worker) this.fail(failure('Render worker exited before completion'))
+      if (this.worker === worker) this.fail(failure('Render worker exited before completion' +
+        (diagnosticText.trim() ? `: ${sanitizeDisplayText(diagnosticText.trim())}` : '')))
     })
     return worker
   }
