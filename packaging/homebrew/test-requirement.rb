@@ -1,7 +1,7 @@
 require "formula"
 require "tmpdir"
 
-formula = Formulary.factory(Pathname.new(ARGV.fetch(0)))
+formula = Formulary.from_path(Pathname.new(ARGV.fetch(0)))
 requirement = formula.requirements.find { |item| item.class.name.end_with?("MdviewLinuxToolsRequirement") }
 raise "Linux tool requirement missing" unless requirement
 raise "This check requires Linux ldd" unless File.executable?("/usr/bin/ldd")
