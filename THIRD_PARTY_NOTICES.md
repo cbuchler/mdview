@@ -1,7 +1,7 @@
 # Bundled sandbox component
 
-The Linux executable includes the apply-seccomp helper from Anthropic
-Sandbox Runtime 0.0.82, distributed under the Apache License 2.0.
+The executable includes Anthropic Sandbox Runtime 0.0.82 for macOS
+sandboxing, distributed under the Apache License 2.0.
 Source: https://github.com/anthropics/sandbox-runtime/tree/v0.0.82
 
                                  Apache License

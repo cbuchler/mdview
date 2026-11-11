@@ -1,10 +1,12 @@
 import { execFile, spawn } from 'node:child_process'
-import { access, copyFile, mkdir, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, copyFile, mkdir, open, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { SandboxManager, type SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime'
+
+import { linuxSeccomp } from './linux-seccomp.js'
 
 const runFile = promisify(execFile)
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'"
@@ -52,6 +54,7 @@ async function runtimeFiles(executables: string[]): Promise<string[]> {
       for (const library of stdout.match(/\/[^\s()]+/g) ?? []) {
         files.add(library)
         files.add(await realpath(library))
+        directories.add(path.dirname(await realpath(library)))
       }
     } catch (error) {
       const output = (error as { stderr?: string }).stderr ?? ''
@@ -73,25 +76,9 @@ export async function runSandboxLauncher(command: string[], directory: string): 
   process.chdir(work)
   const runtime = await realpath(command[0])
   const shell = '/bin/bash'
-  const env = await executable('env')
+  const env = process.platform === 'darwin' ? await executable('env') : '/usr/bin/env'
   const binaries = [runtime, shell, env]
-  let seccomp: string | undefined
-  let socat: string | undefined
-  if (process.platform === 'linux') {
-    socat = await executable('socat')
-    const embedded = (globalThis as typeof globalThis & { mdviewSeccomp?: string }).mdviewSeccomp
-    if (embedded) {
-      seccomp = path.join(directory, 'apply-seccomp')
-      await rm(seccomp, { force: true })
-      await writeFile(seccomp, Buffer.from(embedded, 'base64'), { mode: 0o500, flag: 'wx' })
-    } else {
-      const entry = fileURLToPath(import.meta.resolve('@anthropic-ai/sandbox-runtime'))
-      seccomp = path.resolve(path.dirname(entry), '../vendor/seccomp', process.arch, 'apply-seccomp')
-    }
-    await access(seccomp, constants.X_OK)
-    binaries.push(socat, seccomp)
-  }
-  const read = await runtimeFiles(binaries)
+  const read = await runtimeFiles(process.platform === 'linux' ? [runtime] : binaries)
   let workerArgs = command.slice(1)
   const bun = globalThis as typeof globalThis & { Bun?: { isStandaloneExecutable?: boolean } }
   if (!bun.Bun?.isStandaloneExecutable) {
@@ -115,6 +102,40 @@ export async function runSandboxLauncher(command: string[], directory: string): 
     }
     read.push(path.join(root, 'node_modules'))
   }
+  if (process.platform === 'linux') {
+    const filterPath = path.join(directory, 'filter.bpf')
+    await rm(filterPath, { force: true })
+    await writeFile(filterPath, linuxSeccomp(), { mode: 0o600, flag: 'wx' })
+    const filter = await open(filterPath, 'r')
+    try {
+      // The launcher already has a detached session. Keep its process group so quit kills PID 1 too.
+      const args = [
+        '--unshare-all', '--unshare-user', '--disable-userns', '--assert-userns-disabled',
+        '--as-pid-1', '--die-with-parent', '--cap-drop', 'ALL', '--clearenv',
+        '--setenv', 'HOME', '/nonexistent', '--setenv', 'PATH', '/nonexistent',
+        '--setenv', 'LANG', 'C.UTF-8', '--setenv', 'NODE_NO_WARNINGS', '1',
+        '--setenv', 'TSX_DISABLE_CACHE', '1', '--setenv', 'TMPDIR', work,
+        '--proc', '/proc', '--remount-ro', '/proc', '--dev', '/dev',
+      ]
+      for (const alias of ['/lib', '/lib64']) {
+        const target = await realpath(alias).catch(() => undefined)
+        if (target && target !== alias) args.push('--symlink', target, alias)
+      }
+      for (const file of read) args.push('--ro-bind', file, file)
+      args.push('--bind', work, work, '--chdir', work, '--remount-ro', '/',
+        '--seccomp', '3', '--', runtime, ...workerArgs)
+      const child = spawn(await executable('bwrap'), args, {
+        env: {}, stdio: ['inherit', 'inherit', 'inherit', filter.fd],
+      })
+      process.exitCode = await new Promise<number>((resolve, reject) => {
+        child.once('error', reject)
+        child.once('exit', (code) => resolve(code ?? 1))
+      })
+    } finally {
+      await filter.close()
+    }
+    return
+  }
   const literal = (value: string) => ({ path: value, literal: true as const })
   const config: SandboxRuntimeConfig = {
     network: {
@@ -127,8 +148,6 @@ export async function runSandboxLauncher(command: string[], directory: string): 
     },
     allowPty: false, allowAppleEvents: false, enableWeakerNetworkIsolation: false,
     enableWeakerNestedSandbox: false, allowNestedUserNamespaces: false,
-    ...(seccomp ? { seccomp: { applyPath: seccomp } } : {}),
-    ...(socat ? { socatPath: socat } : {}),
   }
   try {
     await SandboxManager.initialize(config, undefined, false)

@@ -159,3 +159,19 @@ it('accepts the explicit CLI override and rejects misleading assigned values', a
   expect(parseCliArgs(['--no-sandbox', 'document.md']).noSandbox).toBe(true)
   expect(() => parseCliArgs(['--no-sandbox=false'])).toThrow('does not take a value')
 })
+
+it.skipIf(process.platform !== 'linux')('filters Linux socket and namespace syscalls while permitting anonymous runtime pipes', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'mdview-seccomp-probe-'))
+  let launch: sandbox.RenderLaunch | undefined
+  try {
+    const binary = path.join(directory, 'probe')
+    await runFile('cc', ['test/fixtures/seccomp-probe.c', '-o', binary])
+    // An unfiltered execution must fail this probe, or it cannot establish enforcement.
+    await expect(runFile(binary)).rejects.toThrow()
+    launch = await sandbox.sandboxLaunch([binary])
+    await runFile(launch.command, launch.args, { env: launch.env, cwd: launch.cwd, timeout: 8000 })
+  } finally {
+    await launch?.cleanup?.()
+    await rm(directory, { recursive: true, force: true })
+  }
+}, 10000)

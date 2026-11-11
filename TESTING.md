@@ -55,3 +55,6 @@
   If an artifact is claimed to be standalone, verify that it runs without
   the development runtime installed. Source execution alone does not prove
   that a packaged artifact works.
+
+The Linux sandbox syscall probe requires a C compiler (`cc`) during testing.
+Installed mdview binaries do not require a compiler.

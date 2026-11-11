@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const SANDBOX_FAILURE = 'Render sandbox unavailable. Install the required sandbox dependencies for Linux or macOS. Use --no-sandbox only to explicitly permit unrestricted rendering.'
+export const SANDBOX_FAILURE = 'Render sandbox unavailable. Check sandbox dependencies and host security policy. Use --no-sandbox only to explicitly permit unrestricted rendering.'
 
 export interface RenderLaunch {
   command: string

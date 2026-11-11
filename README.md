@@ -11,7 +11,7 @@ Read Markdown in your terminal and return to where you left off.
 
 ## Install
 
-Current source builds use Anthropic Sandbox Runtime on Linux and macOS. See
+Current source builds use Bubblewrap on Linux and Anthropic Sandbox Runtime on macOS. See
 [sandbox requirements and the explicit override](#limits-and-failure-recovery).
 Published release behavior is described in that release's notes.
 
@@ -166,24 +166,19 @@ If the passage is removed, mdview tries the following block, then the preceding 
 
 ## Limits and failure recovery
 
-Rendering requires a sandbox on every platform. Linux and macOS use
+Rendering requires a sandbox on every platform. Linux uses Bubblewrap with a
+seccomp filter installed before the parser starts. macOS uses
 [@anthropic-ai/sandbox-runtime](https://github.com/anthropics/sandbox-runtime),
-pinned to version 0.0.82. The parser uses the same restrictions for every input
-source. Windows is not supported by this integration.
+pinned to version 0.0.82. Windows is not supported.
 
-- Linux requires Bubblewrap, socat, ripgrep, `/bin/bash`, `env`, and
-  `/usr/bin/ldd`. Install Bubblewrap, socat and ripgrep with your system package
-  manager. Both Bubblewrap and Anthropic's seccomp helper need permission to
-  create capability-bearing user namespaces. Ubuntu's AppArmor policy can block
-  the helper even when Bubblewrap itself works. Mdview reports the failure and
-  stops; it does not alter host security settings or disable seccomp.
+- Linux requires Bubblewrap with user namespace support and `/usr/bin/ldd`.
+  The parser needs no nested namespace helper or proxy. Host security policy
+  must permit Bubblewrap itself; mdview does not change that policy.
 - macOS requires the system `/usr/bin/sandbox-exec` and `/bin/bash`. It uses
   Apple's Seatbelt profiles without an Endpoint Security entitlement. Custom
-  profiles remain an unsupported Apple interface and require compatibility
-  checks when macOS changes.
-- The Linux binary embeds the matching x64 or arm64 seccomp helper and extracts
-  it into a private session directory. It still needs the system tools listed
-  above. Source and npm builds load the helper from the pinned npm package.
+  profiles remain an unsupported Apple interface.
+- Linux x64 and arm64 builds generate the seccomp filter internally. No native
+  helper or compiler is needed at runtime.
 
 Native CI checks cover Linux x64 and macOS arm64 with Node and Bun, including
 the compiled executable without Node or Bun on `PATH`. Other architectures
@@ -216,12 +211,12 @@ the application files so module lookup does not expose the checkout. Document
 paths, history storage and credential files are not granted to the worker.
 
 On Linux, Bubblewrap isolates the worker's process and network namespaces.
-Anthropic's seccomp helper blocks Unix sockets, io_uring and namespace changes.
+Its seccomp filter blocks socket creation, io_uring and namespace changes.
 On macOS, Seatbelt applies filesystem, network and process restrictions. Its
 baseline still allows some OS services; these profiles are not identical to
 Linux namespaces and should not be described as equivalent isolation.
 
-Anthropic's proxy runs in a separate launcher process. Its domain allowlist is
+On macOS, Anthropic's proxy runs in a separate launcher process. Its domain allowlist is
 empty and strict, with no approval callback, so every destination is denied.
 The worker receives no proxy environment variables. The parent still fetches
 remote documents itself. Proxy availability is an additional local attack
