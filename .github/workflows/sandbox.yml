@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-26.04, ubuntu-26.04-arm, macos-latest]
+        os: [ubuntu-26.04, ubuntu-26.04-arm, macos-26, macos-26-intel]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -38,6 +38,7 @@ jobs:
           trap 'rm -rf "$tools"' EXIT
           if [ "$RUNNER_OS" = Linux ]; then
             ln -s "$(command -v bwrap)" "$tools/bwrap"
+            ln -s "$(command -v systemd-run)" "$tools/systemd-run"
           else
             for tool in bash env rg; do
               ln -s "$(command -v "$tool")" "$tools/$tool"
