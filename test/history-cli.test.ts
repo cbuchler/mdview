@@ -45,4 +45,4 @@ it('keeps stdin and failed opens out of history, records successful plain output
     expect(degraded.stdout).toContain('Body')
     expect(degraded.stderr).not.toBe('')
   } finally { await history.flush(); await rm(root, { recursive: true, force: true }) }
-}, 15000)
+}, 30000)

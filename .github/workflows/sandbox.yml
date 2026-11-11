@@ -31,7 +31,6 @@ jobs:
           fi
       - run: npm ci
       - run: npx tsc --noEmit
-      - run: npx vitest run --maxWorkers=2 --exclude test/terminal-pty.test.ts
       - run: npm run build
       - run: node dist/main.js --no-history README.md > /dev/null
       - run: bun src/main.ts --no-history README.md > /dev/null
@@ -51,6 +50,7 @@ jobs:
             done
           fi
           PATH="$tools" release/mdview --no-history README.md > /dev/null
+      - run: npx vitest run --maxWorkers=2 --exclude test/terminal-pty.test.ts
       - name: Check real terminal and busy-worker shutdown
         if: runner.os == 'Linux'
         run: python3 test/fixtures/terminal-pty.py "$PWD" "$(command -v node)" "$PWD/release/mdview"
