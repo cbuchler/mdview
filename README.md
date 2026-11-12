@@ -33,9 +33,16 @@ the [release](https://github.com/cbuchler/mdview/releases/tag/v0.3.0),
 Archives include the executable, license, third-party notices, and shell
 completions. Node, npm, Bun, and a compiler are not needed to run them.
 
-Homebrew delivery is being prepared in
-[cbuchler/homebrew-tap](https://github.com/cbuchler/homebrew-tap).
-See [Homebrew delivery](docs/homebrew.md) for its publication status.
+### Homebrew
+
+```sh
+brew install cbuchler/tap/mdview
+```
+
+The [tap](https://github.com/cbuchler/homebrew-tap) provides prebuilt bottles for
+Linux and macOS, on x64 and ARM64. Use `brew upgrade cbuchler/tap/mdview` to update
+and `brew uninstall mdview` to remove it. The runtime requirements below still
+apply. See [Homebrew delivery](docs/homebrew.md) for validation and maintenance.
 
 ### From source
 

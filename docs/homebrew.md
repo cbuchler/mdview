@@ -1,9 +1,18 @@
 # Homebrew delivery
 
-The tap is [cbuchler/homebrew-tap](https://github.com/cbuchler/homebrew-tap).
-Its first mdview formula is in [PR #1](https://github.com/cbuchler/homebrew-tap/pull/1).
-Do not advertise `brew install cbuchler/tap/mdview` until the source and bottles
-are available and the public installation has passed.
+The [cbuchler/homebrew-tap](https://github.com/cbuchler/homebrew-tap) tap publishes
+mdview bottles for Linux and macOS, on x64 and ARM64:
+
+```sh
+brew install cbuchler/tap/mdview
+brew upgrade cbuchler/tap/mdview
+```
+
+The v0.3.0 source builds and local bottle checks passed on all four native hosts.
+[Public installation checks](https://github.com/cbuchler/homebrew-tap/actions/runs/43123350705)
+also passed: bottle installation, protected rendering without Node or Bun on
+PATH, shell completion files, and uninstall. Validation hosts were Ubuntu 26.04
+and macOS 26. Other OS versions are not validated.
 
 The formula template is [mdview.rb.in](../packaging/homebrew/mdview.rb.in).
 It builds from immutable source with locked npm dependencies and checksummed
@@ -83,6 +92,5 @@ uninstall checks. A formula syntax check is not installation proof.
    upgrade from the prior published formula when one exists, and uninstall.
 6. Add the verified install command and tap link to README and release notes.
 
-Reinstalling one version does not prove an upgrade. The initial draft's CI
-checks source builds and local bottle pours; public URLs, tap publication and
-cross-version upgrades remain separate acceptance checks.
+Reinstalling one version does not prove an upgrade. v0.3.0 is the first published
+formula, so cross-version upgrade validation must accompany the next release.
